@@ -1,0 +1,8 @@
+# Speech-to-Text Dependencies for Whisper Large V3
+faster-whisper>=1.0.0
+torch>=2.0.0
+numpy>=1.24.0
+
+# LLM for intelligent name extraction
+openai>=1.0.0
+

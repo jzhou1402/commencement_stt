@@ -1,0 +1,55 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+env/
+venv/
+ENV/
+.venv
+
+# Model cache
+*.cache/
+models/
+
+# API keys
+.env
+*.key
+
+# Output files
+*_transcript.txt
+*_transcript.json
+*_transcript.srt
+*_transcript.vtt
+*_metadata.json
+*_enriched.json
+*_names.txt
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Audio/Video files (large)
+*.mp3
+*.wav
+*.mp4
+*.mov
+*.avi
+*.flac
+*.m4a
+
+# But keep test audio as example
+!test_audio/*.mp3
+
+# Logs
+*.log
+
+
