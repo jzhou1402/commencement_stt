@@ -46,10 +46,6 @@ Thumbs.db
 *.flac
 *.m4a
 
-# But keep test audio as example
-!test_audio/*.mp3
-
 # Logs
 *.log
-
-
+.zsh_history
