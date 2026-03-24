@@ -42,213 +42,271 @@ def load_transcript(transcript_path):
     return text.strip()
 
 
-def extract_groups_from_transcript(transcript_text, school, year, api_key=None):
-    """
-    Extract graduate groups (department/program + names list)
-    
-    Args:
-        transcript_text: Full transcript text
-        school: Institution name
-        year: Graduation year
-        api_key: OpenAI API key
-    
-    Returns:
-        List of groups with descriptions and names
-    """
-    
-    # Get API key
-    if api_key is None:
-        api_key = os.environ.get("OPENAI_API_KEY")
-    
-    if not api_key:
-        print("\n❌ Error: No OpenAI API key found!")
-        print("Set OPENAI_API_KEY environment variable")
-        print("\nExample:")
-        print('  export OPENAI_API_KEY="sk-your-api-key-here"')
-        sys.exit(1)
-    
-    # Initialize OpenAI client
-    client = OpenAI(api_key=api_key)
-    
-    print(f"\n🤖 Extracting graduate groups from {school} {year} ceremony...")
-    print("   Using GPT-4o for extraction...")
-    
-    # Extract groups
-    try:
-        response = client.chat.completions.create(
-            model="gpt-4o",
-            messages=[
-                {
-                    "role": "system",
-                    "content": f"""You are an expert at extracting graduate names from commencement transcripts.
+BOUNDARY_SYSTEM_PROMPT = """You are analyzing a commencement ceremony transcript to find where different academic programs/departments are announced.
 
-In commencement ceremonies, graduates are typically announced in groups by department/program/degree.
-The pattern is usually:
-1. An announcement like "In the School of Engineering, the Department of Civil and Environmental Engineering, master of engineering in civil and environmental engineering"
-2. Followed by a list of graduate names
+In commencement ceremonies, an announcer reads department/program announcements like:
+- "In the School of Engineering, the Department of Civil and Environmental Engineering, master of engineering..."
+- "Doctor of Philosophy in Electrical Engineering and Computer Science"
+- "Master of Science in Mechanical Engineering"
 
-Your task: Extract ALL such groups from this {school} {year} transcript.
+These announcements are followed by lists of graduate names.
 
-Return a JSON object with this structure:
+Your task: Find ALL segment indices where a new department/program/degree is announced.
+
+You will receive a numbered list of transcript segments. Return a JSON object:
+{{
+  "boundaries": [
+    {{
+      "segment_index": 42,
+      "program_description": "Full text of the department/program/degree announcement"
+    }}
+  ]
+}}
+
+Rules:
+1. Only mark segments that announce a NEW program/department/degree group
+2. Do NOT mark segments that are just graduate names
+3. Include the full announcement text as program_description
+4. If no program boundaries exist in this text, return {{"boundaries": []}}"""
+
+EXTRACTION_SYSTEM_PROMPT = """You are an expert at extracting graduate names from commencement transcripts.
+
+This chunk of transcript is from a {school} {year} commencement ceremony.
+The broader context is: {program_context}
+
+Within this chunk, the announcer reads specific degree programs (e.g. "Bachelor of Science in Material Science and Engineering") followed by graduate names. A single chunk may contain MULTIPLE programs.
+
+Extract ALL graduates grouped by their specific program. Pay close attention to degree and major announcements that appear WITHIN the text — these tell you exactly what program each group of names belongs to.
+
+Return a JSON object:
 {{
   "groups": [
     {{
-      "description": "Full description of the department/program/degree",
-      "names": ["Student Name 1", "Student Name 2", "Student Name 3", ...]
-    }},
-    {{
-      "description": "Another department description",
-      "names": ["Student Name 4", "Student Name 5", ...]
+      "program": "The specific degree + major (e.g. 'Bachelor of Science in Electrical Engineering and Computer Science')",
+      "names": ["Student Name 1", "Student Name 2", ...]
     }}
   ]
 }}
 
 Rules:
 1. Extract ONLY graduate names (not faculty, speakers, staff, or performers)
-2. Be comprehensive - capture ALL groups and ALL names within each group
+2. Be comprehensive - capture ALL names
 3. Preserve exact name spelling from transcript
-4. Keep the full description text as it appears
-5. If you see a pattern of names without a clear description, create a generic description like "Graduates" or use the last known department
-6. Include every single name mentioned - this is critical!
+4. Group names by their specific program/major as announced in the transcript
+5. If there are no graduate names in this chunk, return {{"groups": []}}"""
 
-Example output:
-{{
-  "groups": [
-    {{
-      "description": "In the School of Engineering, Department of Mechanical Engineering, Master of Science in Mechanical Engineering",
-      "names": ["John Smith", "Jane Doe", "Bob Johnson"]
-    }},
-    {{
-      "description": "Doctor of Philosophy",
-      "names": ["Alice Williams", "Charlie Brown"]
-    }}
-  ]
-}}"""
-                },
-                {
-                    "role": "user",
-                    "content": f"Extract ALL graduate groups and names from this {school} {year} commencement transcript:\n\n{transcript_text}"
-                }
+
+def find_program_boundaries(segments, school, year, client, on_status=None):
+    """
+    Use LLM to identify segment indices where new programs/departments are announced.
+
+    Returns list of {"segment_index": int, "program_description": str}
+    """
+    # Build a numbered segment list for the LLM
+    # For very long transcripts, we may need to batch this too
+    seg_lines = []
+    for i, seg in enumerate(segments):
+        text = seg.get("text", "").strip()
+        if text:
+            seg_lines.append(f"[{i}] {text}")
+
+    seg_text = "\n".join(seg_lines)
+
+    # If transcript is very long, split the boundary detection into batches
+    max_chars = 60000
+    if len(seg_text) <= max_chars:
+        batches = [seg_text]
+    else:
+        batches = []
+        current = []
+        current_len = 0
+        for line in seg_lines:
+            if current_len + len(line) > max_chars and current:
+                batches.append("\n".join(current))
+                current = [line]
+                current_len = len(line)
+            else:
+                current.append(line)
+                current_len += len(line) + 1
+        if current:
+            batches.append("\n".join(current))
+
+    all_boundaries = []
+    for batch_i, batch in enumerate(batches):
+        if on_status:
+            on_status(f"Finding program boundaries (batch {batch_i+1}/{len(batches)})...")
+
+        response = client.chat.completions.create(
+            model="gpt-4o",
+            messages=[
+                {"role": "system", "content": BOUNDARY_SYSTEM_PROMPT},
+                {"role": "user", "content": f"Find all program/department announcement segments in this {school} {year} commencement transcript:\n\n{batch}"},
             ],
             response_format={"type": "json_object"},
-            temperature=0.0
+            temperature=0.0,
         )
-        
-        # Parse response
-        result_text = response.choices[0].message.content
-        data = json.loads(result_text)
-        
-        return data.get("groups", [])
-        
-    except Exception as e:
-        print(f"\n❌ Error using GPT: {e}")
-        raise
+        data = json.loads(response.choices[0].message.content)
+        all_boundaries.extend(data.get("boundaries", []))
+
+    return all_boundaries
 
 
-def parse_description(description):
+def chunk_by_program(segments, boundaries):
     """
-    Parse department description to extract structured info
-    
+    Split segments into chunks based on program boundaries.
+    Each chunk is (program_description, segment_list).
+    """
+    if not boundaries:
+        # No boundaries found — return everything as one chunk
+        full_text = " ".join(s.get("text", "") for s in segments)
+        return [("Unknown program", full_text)]
+
+    # Sort boundaries by segment_index
+    boundaries = sorted(boundaries, key=lambda b: b["segment_index"])
+
+    chunks = []
+
+    # Any segments before first boundary (preamble — speeches, etc.)
+    first_idx = boundaries[0]["segment_index"]
+    if first_idx > 0:
+        preamble = " ".join(s.get("text", "") for s in segments[:first_idx])
+        if preamble.strip():
+            chunks.append(("Preamble (speeches, introductions)", preamble))
+
+    # Chunk between each boundary
+    for i, boundary in enumerate(boundaries):
+        start_idx = boundary["segment_index"]
+        end_idx = boundaries[i + 1]["segment_index"] if i + 1 < len(boundaries) else len(segments)
+        chunk_text = " ".join(s.get("text", "") for s in segments[start_idx:end_idx])
+        if chunk_text.strip():
+            chunks.append((boundary["program_description"], chunk_text))
+
+    return chunks
+
+
+def _extract_groups_from_chunk(chunk_text, program_context, school, year, client):
+    """Extract groups of names with their specific programs from a chunk."""
+    response = client.chat.completions.create(
+        model="gpt-4o",
+        messages=[
+            {
+                "role": "system",
+                "content": EXTRACTION_SYSTEM_PROMPT.format(
+                    school=school, year=year, program_context=program_context
+                ),
+            },
+            {
+                "role": "user",
+                "content": f"Extract ALL graduate names grouped by program from this transcript chunk:\n\n{chunk_text}",
+            },
+        ],
+        response_format={"type": "json_object"},
+        temperature=0.0,
+    )
+    data = json.loads(response.choices[0].message.content)
+    groups = data.get("groups", [])
+    # Normalize: ensure each group has "description" key for downstream compat
+    for g in groups:
+        if "program" in g and "description" not in g:
+            g["description"] = g.pop("program")
+    return groups
+
+
+def extract_groups_chunked(transcript_data, school, year, api_key=None, on_progress=None):
+    """
+    Extract graduate groups from transcript using smart program-boundary chunking.
+
+    1. Finds program/department announcement boundaries in the transcript
+    2. Chunks transcript at those boundaries
+    3. Extracts names from each chunk with full program context
+
     Args:
-        description: Description string like "In the School of Engineering, Department of CS, Master of Science"
-    
+        transcript_data: Either a string (plain text) or a dict with 'segments' and 'full_text'
+        school: Institution name
+        year: Graduation year
+        api_key: OpenAI API key
+        on_progress: Optional callback(chunk_index, total_chunks, groups_so_far)
+
     Returns:
-        Dictionary with parsed fields
+        List of all groups across all chunks
     """
-    
-    # Extract basic info
-    info = {
-        "department": None,
-        "program": None,
-        "degree_type": None,
-        "degree_level": None,
-        "school_within": None
-    }
-    
-    desc_lower = description.lower()
-    
-    # Extract school
-    if "school of engineering" in desc_lower:
-        info["school_within"] = "School of Engineering"
-    elif "schwarzman college of computing" in desc_lower or "college of computing" in desc_lower:
-        info["school_within"] = "Schwarzman College of Computing"
-    elif "sloan school" in desc_lower:
-        info["school_within"] = "Sloan School of Management"
-    
-    # Extract department
-    if "department of" in desc_lower:
-        start = description.lower().find("department of")
-        rest = description[start + 13:]  # Skip "department of"
-        # Find next comma or period
-        end = len(rest)
-        for char in [',', '.', '\n']:
-            if char in rest:
-                end = min(end, rest.find(char))
-        info["department"] = rest[:end].strip()
-    
-    # Extract degree level and type
-    if "doctor of philosophy" in desc_lower or "phd" in desc_lower:
-        info["degree_level"] = "Doctoral"
-        info["degree_type"] = "PhD"
-    elif "doctor of science" in desc_lower or "scd" in desc_lower:
-        info["degree_level"] = "Doctoral"
-        info["degree_type"] = "ScD"
-    elif "master of science" in desc_lower:
-        info["degree_level"] = "Master's"
-        info["degree_type"] = "MS"
-    elif "master of engineering" in desc_lower:
-        info["degree_level"] = "Master's"
-        info["degree_type"] = "MEng"
-    elif "master of business" in desc_lower or "mba" in desc_lower:
-        info["degree_level"] = "Master's"
-        info["degree_type"] = "MBA"
-    elif "master" in desc_lower:
-        info["degree_level"] = "Master's"
-        info["degree_type"] = "Master's"
-    elif "bachelor" in desc_lower:
-        info["degree_level"] = "Bachelor's"
-        info["degree_type"] = "Bachelor's"
-    
-    return info
+    if api_key is None:
+        api_key = os.environ.get("OPENAI_API_KEY")
+    if not api_key:
+        raise ValueError("No OpenAI API key found. Set OPENAI_API_KEY environment variable.")
+
+    client = OpenAI(api_key=api_key)
+
+    # Get segments
+    if isinstance(transcript_data, dict) and "segments" in transcript_data:
+        segments = transcript_data["segments"]
+    else:
+        # Plain text fallback — wrap in a single segment
+        text = transcript_data if isinstance(transcript_data, str) else str(transcript_data)
+        segments = [{"start": 0, "end": 0, "text": text}]
+
+    def on_status(msg):
+        if on_progress:
+            on_progress(0, 1, [], msg)
+
+    # Step 1: Find program boundaries
+    on_status("Identifying program/department boundaries...")
+    boundaries = find_program_boundaries(segments, school, year, client, on_status=on_status)
+    print(f"  Found {len(boundaries)} program boundaries", flush=True)
+
+    # Step 2: Chunk by program
+    program_chunks = chunk_by_program(segments, boundaries)
+    print(f"  Split into {len(program_chunks)} program chunks", flush=True)
+
+    # Step 3: Extract names from each chunk
+    all_groups = []
+    total = len(program_chunks)
+
+    for i, (program_desc, chunk_text) in enumerate(program_chunks):
+        if not chunk_text.strip():
+            continue
+
+        # Skip preamble chunks (speeches, not name-reading)
+        if program_desc.startswith("Preamble"):
+            if on_progress:
+                on_progress(i + 1, total, all_groups)
+            continue
+
+        groups = _extract_groups_from_chunk(chunk_text, program_desc, school, year, client)
+        all_groups.extend(groups)
+
+        if on_progress:
+            on_progress(i + 1, total, all_groups)
+
+    return all_groups
+
+
+def extract_groups_from_transcript(transcript_text, school, year, api_key=None):
+    """
+    Extract graduate groups (single-call, for CLI / backward compat).
+    For chunked extraction with progress, use extract_groups_chunked().
+    """
+    return extract_groups_chunked(transcript_text, school, year, api_key=api_key)
 
 
 def convert_groups_to_graduates(groups, school, year):
     """
-    Convert groups format to structured graduates list
-    
-    Args:
-        groups: List of {description, names} dicts
-        school: School name
-        year: Year
-    
-    Returns:
-        Structured data with graduates list
+    Convert groups format to structured graduates list.
+    Uses the group description directly as the program — no brittle parsing.
     """
-    
     graduates = []
-    
+
     for group in groups:
-        description = group.get("description", "")
+        description = group.get("description", "Unknown")
         names = group.get("names", [])
-        
-        # Parse the description
-        parsed = parse_description(description)
-        
-        # Create a graduate entry for each name
+
         for name in names:
-            if name and name.strip():  # Skip empty names
-                graduate = {
+            if name and name.strip():
+                graduates.append({
                     "name": name.strip(),
-                    "department": parsed["department"] or "Unknown",
-                    "program": parsed["program"],
-                    "degree_type": parsed["degree_type"] or "Unknown",
-                    "degree_level": parsed["degree_level"] or "Unknown",
-                    "school_within": parsed["school_within"],
-                    "description": description,
-                    "notes": None
-                }
-                graduates.append(graduate)
-    
+                    "degree": description,
+                })
+
     return {
         "school": school,
         "year": year,
@@ -319,24 +377,23 @@ def main():
     if len(groups) > 5:
         print(f"  ... and {len(groups) - 5} more groups")
     
-    # Count by degree level
+    # Count by degree
     degree_counts = {}
     for grad in graduates:
-        level = grad.get('degree_level', 'Unknown')
-        degree_counts[level] = degree_counts.get(level, 0) + 1
-    
+        degree = grad.get('degree', 'Unknown')
+        degree_counts[degree] = degree_counts.get(degree, 0) + 1
+
     if degree_counts:
-        print("\n📊 By degree level:")
-        for level, count in sorted(degree_counts.items()):
-            print(f"  - {level}: {count}")
-    
+        print("\n📊 By degree:")
+        for degree, count in sorted(degree_counts.items()):
+            print(f"  - {degree}: {count}")
+
     # Show sample graduates
     print(f"\n👤 Sample graduates (first 10):")
     for i, grad in enumerate(graduates[:10], 1):
-        dept = grad.get('department', 'Unknown')
-        degree = grad.get('degree_type', '?')
+        degree = grad.get('degree', '?')
         name = grad['name'][:35] + "..." if len(grad['name']) > 35 else grad['name']
-        print(f"  {i:2d}. {name:<38} | {degree:6} | {dept}")
+        print(f"  {i:2d}. {name:<38} | {degree}")
     
     if len(graduates) > 10:
         print(f"  ... and {len(graduates) - 10} more")

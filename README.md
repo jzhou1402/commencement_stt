@@ -1,323 +1,112 @@
 # Commencement Speech-to-Text & Profile Enrichment Pipeline
 
-A complete pipeline for transcribing commencement ceremonies and building comprehensive graduate profiles using state-of-the-art AI.
+A pipeline for transcribing commencement ceremonies and building graduate profiles using AI.
 
-## 🎯 What This Does
-
-1. **Transcribes audio/video** using Whisper Large V3 (SOTA speech-to-text)
-2. **Extracts structured metadata** (names, degrees, departments) using GPT-4o
-3. **Enriches profiles** with deep online research for each graduate
-
-Perfect for:
-- Alumni offices tracking graduates
-- Recruiters building candidate databases
-- Researchers studying graduate outcomes
-- Network building and connections
-
-## 🚀 Quick Start
-
-### Installation
+## Setup
 
 ```bash
-# Install dependencies
 pip install -r requirements.txt
-
-# Set your OpenAI API key (required for steps 2 & 3)
 export OPENAI_API_KEY="sk-your-api-key-here"
 ```
 
-### Complete Pipeline
+## Usage
+
+### Run the full pipeline
 
 ```bash
-# Step 1: Transcribe audio (FREE - runs locally)
+python run_pipeline.py ceremony.mp3 MIT 2025
+
+# Test with a small sample first
+python run_pipeline.py ceremony.mp3 MIT 2025 --sample 5
+```
+
+### Or run each step individually
+
+```bash
+# Step 1: Transcribe audio (free, runs locally with Whisper Large V3)
 python download_text.py ceremony.mp3
 
-# Step 2: Extract metadata (~$0.15-0.30)
-python extract_metadata.py ceremony_transcript.json
+# Step 2: Extract graduate names and metadata (GPT-4o, ~$0.25)
+python extract_metadata.py ceremony_transcript.txt MIT 2025
 
-# Step 3: Enrich profiles (~$0.10-0.30 per person)
-python enrich_profiles.py ceremony_metadata.json
-
-# Or test with a sample first:
-python enrich_profiles.py ceremony_metadata.json --sample 5
+# Step 3: Enrich profiles with web research (GPT-5.1 Responses API, ~$0.10-0.30/person)
+python enrich_profiles.py mit_2025_graduates.json --sample 5   # test first
+python enrich_profiles.py mit_2025_graduates.json              # then all
+python enrich_profiles.py mit_2025_graduates.json "Jane Smith" # or one person
 ```
 
-## 📋 Pipeline Details
+## Pipeline
 
-### Step 1: Audio Transcription
+```
+ceremony.mp3
+  |
+  v
+[Step 1: download_text.py] -- Whisper Large V3, local, free
+  |  outputs: *_transcript.{txt,json,srt,vtt}
+  v
+[Step 2: extract_metadata.py <transcript> <school> <year>] -- GPT-4o
+  |  outputs: {school}_{year}_graduates.json
+  v
+[Step 3: enrich_profiles.py <graduates.json>] -- GPT-5.1 + web search + reasoning
+  |  outputs: {school}_{year}_enriched.json
+  v
+Done: enriched profiles with LinkedIn, GitHub, publications, experience, etc.
+```
 
-**Script:** `download_text.py`
+## Step details
 
-Converts audio/video to text using OpenAI's Whisper Large V3 model.
+### Step 1: Transcription (`download_text.py`)
 
-**Features:**
-- Supports: MP3, WAV, FLAC, M4A, OGG, MP4, MOV, AVI
+Converts audio/video to text using Whisper Large V3. Supports MP3, WAV, FLAC, M4A, OGG, MP4, MOV, AVI.
+
 - Word-level timestamps
 - Voice Activity Detection (filters silence)
-- Auto-detects GPU/CPU and optimizes accordingly
+- Auto-detects GPU/CPU
+- Outputs: plain text, JSON with timestamps, SRT subtitles, VTT subtitles
+- Performance: ~2-3hrs for 1hr audio on CPU, ~12-30min on GPU
 
-**Output:**
-- `*_transcript.txt` - Plain text
-- `*_transcript.json` - Detailed with timestamps
-- `*_transcript.srt` - Subtitles
-- `*_transcript.vtt` - Web subtitles
+### Step 2: Metadata extraction (`extract_metadata.py`)
 
-**Example:**
+Extracts structured graduate data from the transcript using GPT-4o.
+
 ```bash
-python download_text.py commencement.mp3
+python extract_metadata.py <transcript_file> <school> <year>
 ```
 
-**Performance:**
-- CPU (Mac): ~0.3-0.5x realtime (1hr audio = 2-3hrs processing)
-- GPU (NVIDIA): ~2-5x realtime (1hr audio = 12-30min processing)
-- Cost: FREE (runs locally)
+Extracts groups of graduates by department/program, then parses each into:
+- Name, department, degree type/level, school within university
 
-### Step 2: Metadata Extraction
+### Step 3: Profile enrichment (`enrich_profiles.py`)
 
-**Script:** `extract_metadata.py`
+Researches each graduate using the OpenAI Responses API with GPT-5.1, high reasoning, and web search.
 
-Extracts structured data from transcript using GPT-4o.
-
-**What it extracts:**
-- Ceremony info (institution, year, type)
-- All graduate names
-- Departments and programs
-- Degree levels and types
-- Full degree names
-
-**Output:**
-- `*_metadata.json` - Structured graduate data
-
-**Example:**
 ```bash
-python extract_metadata.py ceremony_transcript.json
+python enrich_profiles.py <graduates_json>              # all
+python enrich_profiles.py <graduates_json> --sample N   # first N
+python enrich_profiles.py <graduates_json> "Full Name"  # one person
 ```
 
-**Cost:** ~$0.15-0.30 per ceremony (depending on length)
+Produces free-form profiles with citations covering education, experience, publications, online presence, and achievements.
 
-### Step 3: Profile Enrichment
+## Cost estimate (300 graduates, 1hr ceremony)
 
-**Script:** `enrich_profiles.py`
-
-Conducts deep online research on each graduate using GPT-4o.
-
-**What it finds:**
-- Educational background
-- LinkedIn, GitHub, personal websites
-- Academic publications
-- Work experience
-- Awards and achievements
-- Research interests
-- Media mentions
-- Professional summary
-
-**Output:**
-- `*_enriched.json` - Complete profiles with sources
-
-**Example:**
-```bash
-# Process all graduates
-python enrich_profiles.py ceremony_metadata.json
-
-# Test with 5 graduates first
-python enrich_profiles.py ceremony_metadata.json --sample 5
-```
-
-**Performance:**
-- ~10-20 seconds per graduate
-- For 300 graduates: ~50-100 minutes
-- Uses rate limiting to avoid API throttling
-
-**Cost:** ~$0.10-0.30 per graduate
-
-## 💰 Cost Breakdown
-
-For a typical commencement with 300 graduates:
-
-| Step | Cost | Time |
+| Step | Time | Cost |
 |------|------|------|
-| 1. Transcription | FREE | 2-3 hours (CPU) |
-| 2. Metadata | ~$0.25 | 30-60 seconds |
-| 3. Enrichment | ~$30-90 | 50-100 minutes |
-| **Total** | **~$30-90** | **~3-5 hours** |
+| Transcription | 2-3hrs (CPU) | Free |
+| Metadata extraction | 30-60s | ~$0.25 |
+| Profile enrichment | 50-100min | ~$30-90 |
 
-## 📊 Output Format
+## Test data
 
-### Metadata JSON Structure
+`test_audio/mit_2025_graduates.json` contains extracted metadata for 300+ MIT 2025 graduates, ready for enrichment testing.
 
-```json
-{
-  "ceremony": {
-    "institution": "MIT",
-    "year": 2025,
-    "ceremony_type": "Advanced Degree Ceremony",
-    "schools": ["School of Engineering", "Schwarzman College of Computing"]
-  },
-  "graduates": [
-    {
-      "name": "John Doe",
-      "department": "Electrical Engineering and Computer Science",
-      "program": "Artificial Intelligence",
-      "degree_level": "Doctoral",
-      "degree_type": "PhD",
-      "degree_full": "Doctor of Philosophy in Electrical Engineering and Computer Science"
-    }
-  ]
-}
-```
+## Troubleshooting
 
-### Enriched Profile Structure
+- **"No OpenAI API key"**: `export OPENAI_API_KEY="sk-..."`
+- **Transcription too slow**: Use `model_size="medium"` or `"small"` in `download_text.py`
+- **Rate limit exceeded**: Increase `time.sleep()` delay in `enrich_profiles.py`
+- **"ValueError: Requested float16 compute type"**: Handled automatically (uses int8 on CPU)
 
-```json
-{
-  "name": "John Doe",
-  "degree_info": {...},
-  "education": [...],
-  "online_presence": {
-    "linkedin": "https://linkedin.com/in/johndoe",
-    "github": "https://github.com/johndoe",
-    "personal_website": "https://johndoe.com",
-    "google_scholar": "..."
-  },
-  "research": {
-    "interests": ["Machine Learning", "Computer Vision"],
-    "publications": [...],
-    "thesis_topic": "..."
-  },
-  "experience": [...],
-  "achievements": [...],
-  "projects": [...],
-  "media_mentions": [...],
-  "summary": "PhD graduate specializing in...",
-  "research_confidence": "high"
-}
-```
+## License
 
-## 🔧 Configuration
-
-### Model Selection
-
-**Transcription (Step 1):**
-```python
-# In download_text.py, line ~327
-model_size="large-v3"  # Best accuracy
-# Options: large-v3, large-v2, medium, small, base, tiny
-```
-
-**Metadata & Enrichment (Steps 2 & 3):**
-- Uses GPT-4o (latest OpenAI model)
-- Automatic - no configuration needed
-
-### Rate Limiting
-
-**Enrichment (Step 3):**
-```python
-# In enrich_profiles.py, line ~345
-delay=1.0  # Seconds between API calls
-```
-
-Adjust based on your API rate limits.
-
-## 📁 File Structure
-
-```
-commencement_stt/
-├── download_text.py          # Step 1: Transcription
-├── extract_metadata.py       # Step 2: Metadata extraction
-├── enrich_profiles.py        # Step 3: Profile enrichment
-├── requirements.txt          # Python dependencies
-├── README.md                 # This file
-└── test_audio/
-    ├── ceremony.mp3          # Input audio
-    ├── ceremony_transcript.json
-    ├── ceremony_metadata.json
-    └── ceremony_enriched.json
-```
-
-## 🔍 Use Cases
-
-### 1. Alumni Relations
-Track graduates for newsletters, fundraising, and engagement.
-
-### 2. Recruiting
-Build a database of talented graduates with verified backgrounds.
-
-### 3. Research
-Study graduate career trajectories and outcomes.
-
-### 4. Networking
-Connect graduates with similar interests or backgrounds.
-
-### 5. Communications
-Create personalized outreach based on interests and achievements.
-
-## ⚠️ Important Notes
-
-### Privacy & Ethics
-- Only uses publicly available information
-- Respects robots.txt and terms of service
-- No personal data collection beyond public profiles
-- Graduates have right to request removal
-
-### Accuracy
-- Transcription: ~90-95% accurate (names may have typos)
-- Metadata: ~95-98% accurate (GPT-4o is very reliable)
-- Enrichment: Varies by online presence (marked by confidence level)
-
-### API Costs
-- Requires OpenAI API key (paid)
-- Costs scale with number of graduates
-- Test with --sample flag first
-
-## 🐛 Troubleshooting
-
-### "ValueError: Requested float16 compute type"
-- Fixed automatically - script now uses int8 for CPU
-- If issue persists, ensure you have latest code
-
-### "No OpenAI API key found"
-- Set environment variable: `export OPENAI_API_KEY="sk-..."`
-- Or add to ~/.zshrc for persistence
-
-### "Rate limit exceeded"
-- Increase delay in enrich_profiles.py
-- Check your OpenAI API tier and limits
-- Consider processing in batches
-
-### Transcription too slow
-- Use smaller model: `model_size="medium"` or `"small"`
-- Use higher quality audio (reduces re-processing)
-- Consider GPU instance if processing many files
-
-## 📚 Technical Details
-
-### Models Used
-- **Whisper Large V3**: 1.55B parameters, trained on 680K hours
-- **GPT-4o**: OpenAI's latest multimodal model (Oct 2024)
-
-### Dependencies
-- faster-whisper: Optimized Whisper implementation
-- openai: Official OpenAI Python client
-- torch: PyTorch for model inference
-- numpy: Numerical operations
-
-## 🤝 Contributing
-
-Suggestions for improvement:
-- Add more search APIs (Perplexity, Tavily, SerpAPI)
-- Support for other languages
-- Batch processing multiple ceremonies
-- Database integration (PostgreSQL, MongoDB)
-- Web interface for easy use
-
-## 📝 License
-
-MIT License - Use freely for any purpose.
-
-## 🙏 Acknowledgments
-
-- OpenAI (Whisper & GPT-4o)
-- CTranslate2 team (faster-whisper)
-- MIT for inspiring this project
-
-
+MIT

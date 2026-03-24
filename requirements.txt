@@ -1,8 +1,20 @@
-# Speech-to-Text Dependencies for Whisper Large V3
-faster-whisper>=1.0.0
-torch>=2.0.0
-numpy>=1.24.0
+# Speech-to-Text (Groq Whisper API)
+groq>=0.4.0
 
-# LLM for intelligent name extraction
+# LLM for extraction and enrichment
 openai>=1.0.0
 
+# Web UI
+flask>=3.0.0
+flask-socketio>=5.3.0
+gevent>=24.0.0
+gevent-websocket>=0.10.1
+
+# YouTube download
+yt-dlp>=2024.0.0
+
+# Database
+psycopg2-binary>=2.9.0
+
+# Production server
+gunicorn>=21.0.0

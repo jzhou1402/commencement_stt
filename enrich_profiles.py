@@ -36,28 +36,26 @@ def enrich_graduate(graduate, school, year, client):
     Research a single graduate using GPT-5.1 responses API with web search
     
     Args:
-        graduate: Graduate dict with name, department, degree
+        graduate: Graduate dict with name, degree
         school: School name
         year: Graduation year
         client: OpenAI client
-    
+
     Returns:
         Free-form profile with citations
     """
-    
+
     name = graduate.get("name", "Unknown")
-    department = graduate.get("department", "Unknown")
-    degree = graduate.get("degree_type", "Unknown")
-    
+    degree = graduate.get("degree", "Unknown")
+
     print(f"\n   🔍 {name}")
-    print(f"      {degree} - {department}")
-    
+    print(f"      {degree}")
+
     # Research prompt - framed as professional research, not surveillance
     prompt = f"""Research this graduate for professional networking and alumni relations purposes:
 
 Name: {name}
 Institution: {school} (Class of {year})
-Department: {department}
 Degree: {degree}
 
 Find and compile:
@@ -110,7 +108,6 @@ Provide a comprehensive professional profile with citations."""
             "name": name,
             "school": school,
             "year": year,
-            "department": department,
             "degree": degree,
             "profile": profile_text.strip(),
             "researched_at": datetime.now().isoformat(),
@@ -211,7 +208,7 @@ def main():
         if len(matching) > 1:
             print(f"\n⚠️  Found {len(matching)} matching graduates:")
             for i, g in enumerate(matching, 1):
-                print(f"  {i}. {g.get('name')} - {g.get('department')}")
+                print(f"  {i}. {g.get('name')} - {g.get('degree')}")
             print("\nUsing first match. For exact match, use full name.")
         
         graduates = [matching[0]]
