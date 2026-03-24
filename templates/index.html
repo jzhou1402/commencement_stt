@@ -3,74 +3,143 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Commencement STT Pipeline</title>
+    <title>commencement.stt</title>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/socket.io/4.7.5/socket.io.min.js"></script>
     <style>
         * { margin: 0; padding: 0; box-sizing: border-box; }
-        body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; background: #0a0a0a; color: #e0e0e0; min-height: 100vh; }
+        body {
+            font-family: 'Times New Roman', Times, serif;
+            background: #fafaf8;
+            color: #1a1a1a;
+            min-height: 100vh;
+            line-height: 1.6;
+        }
 
-        .container { max-width: 800px; margin: 0 auto; padding: 40px 20px; }
+        .container { max-width: 680px; margin: 0 auto; padding: 60px 24px; }
 
-        h1 { font-size: 24px; font-weight: 600; margin-bottom: 8px; }
-        .subtitle { color: #888; margin-bottom: 32px; font-size: 14px; }
+        /* Header */
+        h1 { font-size: 32px; font-weight: 400; letter-spacing: -0.5px; margin-bottom: 4px; }
+        .tagline { color: #666; font-size: 18px; font-style: italic; margin-bottom: 48px; }
+
+        /* Sections */
+        .section {
+            border-top: 1px solid #ddd;
+            padding: 32px 0;
+        }
+
+        h2 { font-size: 14px; font-weight: 400; text-transform: uppercase; letter-spacing: 1.5px; color: #999; margin-bottom: 20px; }
 
         /* Form */
-        .upload-section { background: #141414; border: 1px solid #262626; border-radius: 12px; padding: 32px; margin-bottom: 24px; }
         .form-row { display: flex; gap: 12px; margin-bottom: 16px; }
         .form-group { flex: 1; }
-        .form-group.wide { flex: 2; }
-        .form-group label { display: block; font-size: 13px; color: #888; margin-bottom: 6px; }
-        .form-group input { width: 100%; padding: 10px 12px; background: #1a1a1a; border: 1px solid #333; border-radius: 8px; color: #e0e0e0; font-size: 14px; outline: none; }
-        .form-group input:focus { border-color: #555; }
-        .form-group input::placeholder { color: #555; }
+        .form-group label { display: block; font-size: 14px; color: #666; margin-bottom: 4px; }
+        input {
+            width: 100%;
+            padding: 10px 12px;
+            font-family: 'Times New Roman', Times, serif;
+            font-size: 16px;
+            border: 1px solid #ccc;
+            border-radius: 4px;
+            background: #fff;
+            color: #1a1a1a;
+            outline: none;
+        }
+        input:focus { border-color: #1a1a1a; }
+        input::placeholder { color: #bbb; }
 
-        .btn { width: 100%; padding: 12px; background: #fff; color: #000; border: none; border-radius: 8px; font-size: 15px; font-weight: 600; cursor: pointer; transition: opacity 0.2s; }
-        .btn:hover { opacity: 0.9; }
-        .btn:disabled { opacity: 0.3; cursor: not-allowed; }
+        .btn {
+            width: 100%;
+            padding: 12px;
+            font-family: 'Times New Roman', Times, serif;
+            font-size: 16px;
+            background: #1a1a1a;
+            color: #fafaf8;
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
+            transition: background 0.2s;
+        }
+        .btn:hover { background: #333; }
+        .btn:disabled { background: #ccc; cursor: not-allowed; }
 
-        /* Progress section */
-        .progress-section { display: none; background: #141414; border: 1px solid #262626; border-radius: 12px; padding: 32px; margin-bottom: 24px; }
+        /* Progress */
+        .progress-section { display: none; padding: 24px 0; }
         .progress-section.active { display: block; }
 
-        .step-indicator { display: flex; gap: 8px; margin-bottom: 24px; }
-        .step { flex: 1; text-align: center; padding: 8px; border-radius: 6px; font-size: 13px; font-weight: 500; background: #1a1a1a; color: #555; transition: all 0.3s; }
-        .step.active { background: #1a1a2e; color: #818cf8; }
-        .step.done { background: #0a1a0a; color: #4ade80; }
+        .steps { display: flex; gap: 24px; margin-bottom: 20px; font-size: 14px; }
+        .step-item { color: #ccc; }
+        .step-item.active { color: #1a1a1a; font-style: italic; }
+        .step-item.done { color: #666; text-decoration: line-through; }
 
-        .progress-bar-container { background: #1a1a1a; border-radius: 8px; height: 32px; overflow: hidden; margin-bottom: 12px; position: relative; }
-        .progress-bar { height: 100%; background: linear-gradient(90deg, #818cf8, #6366f1); border-radius: 8px; transition: width 0.3s ease; width: 0%; }
-        .progress-text { position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); font-size: 13px; font-weight: 600; color: #fff; text-shadow: 0 1px 2px rgba(0,0,0,0.5); }
+        .progress-bar-wrap {
+            background: #eee;
+            border-radius: 2px;
+            height: 6px;
+            margin-bottom: 12px;
+            overflow: hidden;
+        }
+        .progress-bar-fill {
+            height: 100%;
+            background: #1a1a1a;
+            width: 0%;
+            transition: width 0.3s ease;
+        }
 
-        .status-message { font-size: 14px; color: #888; margin-bottom: 8px; }
-        .latest-text { font-size: 13px; color: #555; font-style: italic; max-height: 40px; overflow: hidden; margin-top: 8px; }
+        .status { font-size: 14px; color: #666; margin-bottom: 4px; }
+        .latest { font-size: 14px; color: #999; font-style: italic; }
 
-        .cached-badge { display: inline-block; background: #1a2a1a; color: #4ade80; padding: 2px 10px; border-radius: 4px; font-size: 12px; font-weight: 500; margin-left: 8px; }
-
-        /* Results section */
-        .results-section { display: none; background: #141414; border: 1px solid #262626; border-radius: 12px; padding: 32px; }
+        /* Results */
+        .results-section { display: none; }
         .results-section.active { display: block; }
 
-        .results-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px; }
-        .results-header h2 { font-size: 18px; }
-        .stat { display: inline-block; background: #1a1a1a; padding: 4px 12px; border-radius: 20px; font-size: 13px; color: #888; margin-left: 8px; }
+        .results-meta { font-size: 14px; color: #666; margin-bottom: 16px; }
+        .results-meta span { color: #1a1a1a; font-weight: 600; }
 
-        .graduates-table { width: 100%; border-collapse: collapse; font-size: 13px; }
-        .graduates-table th { text-align: left; padding: 10px 12px; border-bottom: 1px solid #262626; color: #888; font-weight: 500; }
-        .graduates-table td { padding: 10px 12px; border-bottom: 1px solid #1a1a1a; }
-        .graduates-table tr:hover td { background: #1a1a1a; }
-        .degree-badge { display: inline-block; background: #1a1a2e; color: #818cf8; padding: 2px 8px; border-radius: 4px; font-size: 12px; }
+        table { width: 100%; border-collapse: collapse; font-size: 15px; }
+        th {
+            text-align: left;
+            padding: 8px 0;
+            border-bottom: 2px solid #1a1a1a;
+            font-weight: 400;
+            font-size: 12px;
+            text-transform: uppercase;
+            letter-spacing: 1px;
+            color: #999;
+        }
+        td {
+            padding: 8px 0;
+            border-bottom: 1px solid #eee;
+        }
+        tr:hover td { background: #f5f5f3; }
+        .degree-cell { font-size: 13px; color: #666; }
+        .table-wrap { max-height: 600px; overflow-y: auto; }
 
-        .error-message { background: #1a0a0a; border: 1px solid #f87171; color: #f87171; padding: 16px; border-radius: 8px; font-size: 14px; margin-top: 16px; display: none; }
-        .error-message.active { display: block; }
+        .error-msg {
+            display: none;
+            padding: 12px 16px;
+            border-left: 3px solid #c00;
+            background: #fff5f5;
+            color: #900;
+            font-size: 14px;
+            margin-top: 16px;
+        }
+        .error-msg.active { display: block; }
+
+        /* About */
+        .about p { font-size: 15px; color: #666; margin-bottom: 12px; }
+        .about a { color: #1a1a1a; }
+
+        footer { border-top: 1px solid #ddd; padding-top: 24px; margin-top: 48px; font-size: 13px; color: #999; }
     </style>
 </head>
 <body>
     <div class="container">
-        <h1>Commencement STT Pipeline</h1>
-        <p class="subtitle">Paste a YouTube link to a commencement ceremony to transcribe and extract graduate data.</p>
+        <h1>commencement.stt</h1>
+        <p class="tagline">Extract every graduate from a commencement ceremony.</p>
 
         <!-- Input -->
-        <div class="upload-section" id="uploadSection">
+        <div class="section">
+            <h2>Process a ceremony</h2>
             <div class="form-group" style="margin-bottom: 16px;">
                 <label>YouTube URL</label>
                 <input type="text" id="youtubeUrl" placeholder="https://www.youtube.com/watch?v=...">
@@ -78,65 +147,68 @@
             <div class="form-row">
                 <div class="form-group">
                     <label>School</label>
-                    <input type="text" id="school" placeholder="e.g. MIT" value="MIT">
+                    <input type="text" id="school" placeholder="e.g. MIT">
                 </div>
                 <div class="form-group">
                     <label>Year</label>
-                    <input type="number" id="year" placeholder="e.g. 2025" value="2025">
+                    <input type="number" id="year" placeholder="2025" value="2025">
                 </div>
             </div>
-            <button class="btn" id="startBtn">Start Pipeline</button>
+            <button class="btn" id="startBtn">Extract graduates</button>
         </div>
 
         <!-- Progress -->
         <div class="progress-section" id="progressSection">
-            <div class="step-indicator">
-                <div class="step" id="stepDownload">1. Download</div>
-                <div class="step" id="stepTranscribe">2. Transcription</div>
-                <div class="step" id="stepMetadata">3. Metadata</div>
+            <div class="steps">
+                <div class="step-item" id="stepDownload">Download</div>
+                <div class="step-item" id="stepTranscribe">Transcribe</div>
+                <div class="step-item" id="stepMetadata">Extract</div>
             </div>
-
-            <div class="status-message" id="statusMessage">Preparing...</div>
-            <div class="progress-bar-container">
-                <div class="progress-bar" id="progressBar"></div>
-                <div class="progress-text" id="progressText">0%</div>
+            <div class="progress-bar-wrap">
+                <div class="progress-bar-fill" id="progressBar"></div>
             </div>
-            <div class="latest-text" id="latestText"></div>
+            <div class="status" id="statusMessage">Preparing...</div>
+            <div class="latest" id="latestText"></div>
         </div>
 
         <!-- Results -->
         <div class="results-section" id="resultsSection">
-            <div class="results-header">
-                <h2>Graduates</h2>
-                <div>
-                    <span class="stat" id="totalCount"></span>
-                    <span class="stat" id="groupCount"></span>
+            <div class="section">
+                <h2>Results</h2>
+                <p class="results-meta"><span id="totalCount"></span> graduates across <span id="groupCount"></span> programs</p>
+                <div class="table-wrap">
+                    <table>
+                        <thead>
+                            <tr>
+                                <th style="width:40px">#</th>
+                                <th>Name</th>
+                                <th>Degree</th>
+                            </tr>
+                        </thead>
+                        <tbody id="graduatesBody"></tbody>
+                    </table>
                 </div>
-            </div>
-            <div style="max-height: 500px; overflow-y: auto;">
-                <table class="graduates-table">
-                    <thead>
-                        <tr>
-                            <th>#</th>
-                            <th>Name</th>
-                            <th>Degree</th>
-                        </tr>
-                    </thead>
-                    <tbody id="graduatesBody"></tbody>
-                </table>
             </div>
         </div>
 
-        <div class="error-message" id="errorMessage"></div>
+        <div class="queue-msg" id="queueMessage" style="display:none; padding: 12px 16px; border-left: 3px solid #999; background: #f9f9f7; color: #666; font-size: 14px; font-style: italic; margin-top: 16px;"></div>
+        <div class="error-msg" id="errorMessage"></div>
+
+        <!-- About -->
+        <div class="section about">
+            <h2>How it works</h2>
+            <p>Paste a YouTube link to any commencement ceremony. We download the audio, transcribe it with Whisper, then use GPT-4o to identify every graduate and their degree program.</p>
+            <p>Transcriptions are cached &mdash; processing the same video twice is instant.</p>
+        </div>
+
+        <footer>commencement.stt</footer>
     </div>
 
     <script>
         const socket = io();
-
         const urlInput = document.getElementById('youtubeUrl');
         const startBtn = document.getElementById('startBtn');
 
-        // Start pipeline
         startBtn.addEventListener('click', () => {
             const url = urlInput.value.trim();
             if (!url) { urlInput.focus(); return; }
@@ -146,12 +218,10 @@
             document.getElementById('resultsSection').classList.remove('active');
             document.getElementById('errorMessage').classList.remove('active');
             document.getElementById('progressBar').style.width = '0%';
-            document.getElementById('progressText').textContent = '0%';
             document.getElementById('latestText').textContent = '';
 
-            // Reset steps
             ['stepDownload', 'stepTranscribe', 'stepMetadata'].forEach(id => {
-                document.getElementById(id).className = 'step';
+                document.getElementById(id).className = 'step-item';
             });
             document.getElementById('stepDownload').classList.add('active');
 
@@ -166,36 +236,24 @@
                 }),
             })
                 .then(r => r.json())
-                .then(data => {
-                    if (data.error) showError(data.error);
-                    if (data.cached) {
-                        document.getElementById('statusMessage').textContent = 'Found cached transcript!';
-                    }
-                })
+                .then(data => { if (data.error) showError(data.error); })
                 .catch(err => showError(err.message));
         });
 
-        // Allow Enter key to submit
-        urlInput.addEventListener('keydown', (e) => {
-            if (e.key === 'Enter') startBtn.click();
-        });
+        urlInput.addEventListener('keydown', (e) => { if (e.key === 'Enter') startBtn.click(); });
 
-        // Socket events
         socket.on('status', (data) => {
+            document.getElementById('queueMessage').style.display = 'none';
             document.getElementById('statusMessage').textContent = data.message;
-
             if (data.step === 'download') {
                 document.getElementById('stepDownload').classList.add('active');
             } else if (data.step === 'transcribe') {
-                document.getElementById('stepDownload').classList.remove('active');
-                document.getElementById('stepDownload').classList.add('done');
-                document.getElementById('stepTranscribe').classList.add('active');
+                document.getElementById('stepDownload').className = 'step-item done';
+                document.getElementById('stepTranscribe').className = 'step-item active';
             } else if (data.step === 'metadata') {
-                document.getElementById('stepTranscribe').classList.remove('active');
-                document.getElementById('stepTranscribe').classList.add('done');
-                document.getElementById('stepMetadata').classList.add('active');
+                document.getElementById('stepTranscribe').className = 'step-item done';
+                document.getElementById('stepMetadata').className = 'step-item active';
                 document.getElementById('progressBar').style.width = '0%';
-                document.getElementById('progressText').textContent = '0%';
                 document.getElementById('latestText').textContent = '';
             }
         });
@@ -206,41 +264,34 @@
 
         socket.on('transcription_progress', (data) => {
             document.getElementById('progressBar').style.width = data.percent + '%';
-            document.getElementById('progressText').textContent = data.percent.toFixed(1) + '%';
             document.getElementById('statusMessage').textContent =
                 'Transcribing... ' + data.current_time + 's / ' + data.duration + 's';
             if (data.latest_text && data.latest_text !== '(cached)') {
-                document.getElementById('latestText').textContent = '"' + data.latest_text + '"';
+                document.getElementById('latestText').textContent = data.latest_text;
             }
         });
 
         socket.on('transcription_complete', (data) => {
             document.getElementById('progressBar').style.width = '100%';
-            document.getElementById('progressText').textContent = '100%';
-            let msg = 'Transcription complete (' + data.total_segments + ' segments)';
-            if (data.cached) msg += ' [cached]';
+            let msg = data.total_segments + ' segments transcribed';
+            if (data.cached) msg += ' (cached)';
             document.getElementById('statusMessage').textContent = msg;
             document.getElementById('latestText').textContent = '';
-
-            // Mark download + transcribe as done
-            document.getElementById('stepDownload').className = 'step done';
-            document.getElementById('stepTranscribe').className = 'step done';
+            document.getElementById('stepDownload').className = 'step-item done';
+            document.getElementById('stepTranscribe').className = 'step-item done';
         });
 
         socket.on('metadata_progress', (data) => {
             document.getElementById('progressBar').style.width = data.percent + '%';
-            document.getElementById('progressText').textContent = data.percent.toFixed(1) + '%';
             document.getElementById('statusMessage').textContent =
                 'Extracting chunk ' + data.chunk + '/' + data.total_chunks +
-                ' — ' + data.graduates_so_far + ' graduates found';
-            document.getElementById('latestText').textContent = '';
+                ' \u2014 ' + data.graduates_so_far + ' graduates found';
         });
 
         socket.on('metadata_complete', (data) => {
-            document.getElementById('stepMetadata').classList.remove('active');
-            document.getElementById('stepMetadata').classList.add('done');
-            document.getElementById('totalCount').textContent = data.total_graduates + ' graduates';
-            document.getElementById('groupCount').textContent = data.groups + ' groups';
+            document.getElementById('stepMetadata').className = 'step-item done';
+            document.getElementById('totalCount').textContent = data.total_graduates;
+            document.getElementById('groupCount').textContent = data.groups;
 
             const tbody = document.getElementById('graduatesBody');
             tbody.innerHTML = '';
@@ -249,7 +300,7 @@
                 tr.innerHTML =
                     '<td>' + (i + 1) + '</td>' +
                     '<td>' + escapeHtml(g.name) + '</td>' +
-                    '<td><span class="degree-badge">' + escapeHtml(g.degree || '?') + '</span></td>';
+                    '<td class="degree-cell">' + escapeHtml(g.degree || '?') + '</td>';
                 tbody.appendChild(tr);
             });
 
@@ -257,14 +308,21 @@
         });
 
         socket.on('pipeline_complete', () => {
-            document.getElementById('statusMessage').textContent = 'Pipeline complete!';
+            document.getElementById('statusMessage').textContent = 'Done.';
             startBtn.disabled = false;
         });
 
-        socket.on('error', (data) => {
-            showError(data.message);
-            startBtn.disabled = false;
+        socket.on('queue_position', (data) => {
+            const el = document.getElementById('queueMessage');
+            if (data.position > 0) {
+                el.textContent = 'In queue \u2014 position ' + data.position + ' of ' + data.total + '. Please wait...';
+                el.style.display = 'block';
+            } else {
+                el.style.display = 'none';
+            }
         });
+
+        socket.on('error', (data) => { showError(data.message); startBtn.disabled = false; });
 
         function showError(msg) {
             const el = document.getElementById('errorMessage');

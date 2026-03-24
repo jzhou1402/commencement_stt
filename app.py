@@ -10,6 +10,7 @@ import os
 import json
 import hashlib
 import threading
+from queue import Queue
 from pathlib import Path
 
 from flask import Flask, render_template, request, jsonify
@@ -26,6 +27,42 @@ DOWNLOADS_DIR.mkdir(exist_ok=True)
 CACHE_DIR.mkdir(exist_ok=True)
 
 CACHE_INDEX_PATH = CACHE_DIR / "transcripts.json"
+
+# Job queue — process one at a time, max 5 waiting
+MAX_QUEUE_SIZE = 5
+job_queue = Queue(maxsize=MAX_QUEUE_SIZE + 1)  # +1 for the active job
+queue_lock = threading.Lock()
+active_job = None  # track what's currently processing
+
+
+def queue_worker():
+    """Background worker that processes jobs one at a time."""
+    global active_job
+    while True:
+        job = job_queue.get()
+        active_job = job
+        _notify_queue_positions()
+        try:
+            run_pipeline(job["url"], job["school"], job["year"], job["sid"])
+        except Exception as e:
+            socketio.emit("error", {"message": str(e)}, to=job["sid"])
+        finally:
+            active_job = None
+            job_queue.task_done()
+            _notify_queue_positions()
+
+
+def _notify_queue_positions():
+    """Tell all queued clients their position."""
+    with queue_lock:
+        items = list(job_queue.queue)
+    for i, job in enumerate(items):
+        socketio.emit("queue_position", {"position": i + 1, "total": len(items)}, to=job["sid"])
+
+
+# Start the single worker thread
+worker_thread = threading.Thread(target=queue_worker, daemon=True)
+worker_thread.start()
 
 
 def load_cache():
@@ -155,13 +192,40 @@ def transcribe_audio(filepath, sid):
         )
         print(f"  Transcribing chunk {i+1}/{len(chunks)} (offset={offset:.0f}s)...", flush=True)
 
-        with open(chunk_path, "rb") as f:
-            response = client.audio.transcriptions.create(
-                file=(Path(chunk_path).name, f.read()),
-                model="whisper-large-v3",
-                response_format="verbose_json",
-                language="en",
-            )
+        # Retry with backoff on rate limit
+        max_retries = 5
+        for attempt in range(max_retries):
+            try:
+                with open(chunk_path, "rb") as f:
+                    response = client.audio.transcriptions.create(
+                        file=(Path(chunk_path).name, f.read()),
+                        model="whisper-large-v3",
+                        response_format="verbose_json",
+                        language="en",
+                    )
+                break
+            except Exception as e:
+                if "rate_limit" in str(e).lower() or "429" in str(e):
+                    import re, time as _time
+                    # Parse wait time from error message
+                    wait_match = re.search(r"try again in (\d+)m?([\d.]+)?s", str(e))
+                    if wait_match:
+                        wait = int(wait_match.group(1)) * 60 + float(wait_match.group(2) or 0)
+                    else:
+                        wait = 30 * (attempt + 1)
+                    wait = min(wait + 5, 300)  # add buffer, cap at 5 min
+                    print(f"  Rate limited, waiting {wait:.0f}s (attempt {attempt+1}/{max_retries})...", flush=True)
+                    socketio.emit(
+                        "transcription_progress",
+                        {"percent": pct, "current_time": round(offset, 1), "duration": round(duration, 1),
+                         "latest_text": f"Rate limited, retrying in {int(wait)}s..."},
+                        to=sid,
+                    )
+                    _time.sleep(wait)
+                else:
+                    raise
+        else:
+            raise Exception("Groq rate limit exceeded after max retries. Try again later.")
 
         # Process segments with offset adjustment
         if hasattr(response, "segments") and response.segments:
@@ -199,100 +263,96 @@ def transcribe_audio(filepath, sid):
 
 def run_pipeline(youtube_url, school, year, sid):
     """Download YouTube audio, transcribe (or load cache), extract metadata."""
-    try:
-        key = url_key(youtube_url)
-        cache = load_cache()
+    key = url_key(youtube_url)
+    cache = load_cache()
 
-        # Check cache
-        if key in cache:
-            socketio.emit("status", {"step": "transcribe", "message": "Found cached transcript, skipping transcription..."}, to=sid)
-            cached = cache[key]
-            transcript_path = cached["transcript_path"]
-            with open(transcript_path) as f:
-                transcript_data = json.load(f)
-            transcript_text = transcript_data["full_text"]
+    # Check cache
+    if key in cache:
+        socketio.emit("status", {"step": "transcribe", "message": "Found cached transcript, skipping transcription..."}, to=sid)
+        cached = cache[key]
+        transcript_path = cached["transcript_path"]
+        with open(transcript_path) as f:
+            transcript_data = json.load(f)
+        transcript_text = transcript_data["full_text"]
 
-            socketio.emit("transcription_progress", {"percent": 100, "current_time": transcript_data["duration"], "duration": transcript_data["duration"], "latest_text": "(cached)"}, to=sid)
-            socketio.emit("transcription_complete", {"percent": 100, "total_segments": len(transcript_data["segments"]), "text_length": len(transcript_text), "cached": True}, to=sid)
+        socketio.emit("transcription_progress", {"percent": 100, "current_time": transcript_data["duration"], "duration": transcript_data["duration"], "latest_text": "(cached)"}, to=sid)
+        socketio.emit("transcription_complete", {"percent": 100, "total_segments": len(transcript_data["segments"]), "text_length": len(transcript_text), "cached": True}, to=sid)
+    else:
+        # Download
+        audio_path, title = download_youtube_audio(youtube_url, sid)
+
+        # Transcribe
+        transcript_data = transcribe_audio(audio_path, sid)
+        transcript_text = transcript_data["full_text"]
+
+        # Save transcript
+        transcript_path = str(CACHE_DIR / f"{key}_transcript.json")
+        with open(transcript_path, "w", encoding="utf-8") as f:
+            json.dump(transcript_data, f, indent=2, ensure_ascii=False)
+
+        # Update cache
+        cache[key] = {
+            "url": youtube_url,
+            "title": title,
+            "transcript_path": transcript_path,
+        }
+        save_cache(cache)
+
+        socketio.emit("transcription_complete", {"percent": 100, "total_segments": len(transcript_data["segments"]), "text_length": len(transcript_text), "cached": False}, to=sid)
+
+    # Step 2: Metadata extraction (smart program-boundary chunking)
+    socketio.emit("status", {"step": "metadata", "message": "Analyzing transcript for program boundaries..."}, to=sid)
+
+    from extract_metadata import extract_groups_chunked, convert_groups_to_graduates
+
+    def on_chunk_progress(chunk_idx, total_chunks, groups_so_far, status_msg=None):
+        if status_msg:
+            socketio.emit("status", {"step": "metadata", "message": status_msg}, to=sid)
+        if total_chunks > 0:
+            pct = round((chunk_idx / total_chunks) * 100, 1)
         else:
-            # Download
-            audio_path, title = download_youtube_audio(youtube_url, sid)
-
-            # Transcribe
-            transcript_data = transcribe_audio(audio_path, sid)
-            transcript_text = transcript_data["full_text"]
-
-            # Save transcript
-            transcript_path = str(CACHE_DIR / f"{key}_transcript.json")
-            with open(transcript_path, "w", encoding="utf-8") as f:
-                json.dump(transcript_data, f, indent=2, ensure_ascii=False)
-
-            # Update cache
-            cache[key] = {
-                "url": youtube_url,
-                "title": title,
-                "transcript_path": transcript_path,
-            }
-            save_cache(cache)
-
-            socketio.emit("transcription_complete", {"percent": 100, "total_segments": len(transcript_data["segments"]), "text_length": len(transcript_text), "cached": False}, to=sid)
-
-        # Step 2: Metadata extraction (smart program-boundary chunking)
-        socketio.emit("status", {"step": "metadata", "message": "Analyzing transcript for program boundaries..."}, to=sid)
-
-        from extract_metadata import extract_groups_chunked, convert_groups_to_graduates
-
-        def on_chunk_progress(chunk_idx, total_chunks, groups_so_far, status_msg=None):
-            if status_msg:
-                socketio.emit("status", {"step": "metadata", "message": status_msg}, to=sid)
-            if total_chunks > 0:
-                pct = round((chunk_idx / total_chunks) * 100, 1)
-            else:
-                pct = 0
-            grad_count = sum(len(g.get("names", [])) for g in groups_so_far)
-            socketio.emit(
-                "metadata_progress",
-                {
-                    "percent": pct,
-                    "chunk": chunk_idx,
-                    "total_chunks": total_chunks,
-                    "groups_so_far": len(groups_so_far),
-                    "graduates_so_far": grad_count,
-                },
-                to=sid,
-            )
-
-        groups = extract_groups_chunked(
-            transcript_data, school, int(year), on_progress=on_chunk_progress
-        )
-        data = convert_groups_to_graduates(groups, school, int(year))
-        graduates = data.get("graduates", [])
-
-        graduates_filename = f"{school.lower()}_{year}_graduates.json"
-        graduates_path = CACHE_DIR / graduates_filename
-        with open(graduates_path, "w", encoding="utf-8") as f:
-            json.dump(data, f, indent=2, ensure_ascii=False)
-
-        # Persist to database
-        video_title = load_cache().get(key, {}).get("title", youtube_url)
-        save_video(key, youtube_url, video_title, school, int(year), str(graduates_path))
-        save_graduates(key, graduates, school, int(year))
-
+            pct = 0
+        grad_count = sum(len(g.get("names", [])) for g in groups_so_far)
         socketio.emit(
-            "metadata_complete",
+            "metadata_progress",
             {
-                "total_graduates": len(graduates),
-                "groups": len(groups),
-                "graduates": graduates,
-                "file": str(graduates_path),
+                "percent": pct,
+                "chunk": chunk_idx,
+                "total_chunks": total_chunks,
+                "groups_so_far": len(groups_so_far),
+                "graduates_so_far": grad_count,
             },
             to=sid,
         )
 
-        socketio.emit("pipeline_complete", {"message": "Pipeline complete!", "graduates_file": str(graduates_path)}, to=sid)
+    groups = extract_groups_chunked(
+        transcript_data, school, int(year), on_progress=on_chunk_progress
+    )
+    data = convert_groups_to_graduates(groups, school, int(year))
+    graduates = data.get("graduates", [])
 
-    except Exception as e:
-        socketio.emit("error", {"message": str(e)}, to=sid)
+    graduates_filename = f"{school.lower()}_{year}_graduates.json"
+    graduates_path = CACHE_DIR / graduates_filename
+    with open(graduates_path, "w", encoding="utf-8") as f:
+        json.dump(data, f, indent=2, ensure_ascii=False)
+
+    # Persist to database
+    video_title = load_cache().get(key, {}).get("title", youtube_url)
+    save_video(key, youtube_url, video_title, school, int(year), str(graduates_path))
+    save_graduates(key, graduates, school, int(year))
+
+    socketio.emit(
+        "metadata_complete",
+        {
+            "total_graduates": len(graduates),
+            "groups": len(groups),
+            "graduates": graduates,
+            "file": str(graduates_path),
+        },
+        to=sid,
+    )
+
+    socketio.emit("pipeline_complete", {"message": "Pipeline complete!", "graduates_file": str(graduates_path)}, to=sid)
 
 
 @app.route("/")
@@ -311,7 +371,6 @@ def start():
     if not youtube_url:
         return jsonify({"error": "No YouTube URL provided"}), 400
 
-    # Quick check that it looks like a YouTube URL
     if "youtube.com" not in youtube_url and "youtu.be" not in youtube_url:
         return jsonify({"error": "Not a valid YouTube URL"}), 400
 
@@ -319,11 +378,19 @@ def start():
     cache = load_cache()
     cached = key in cache
 
-    thread = threading.Thread(target=run_pipeline, args=(youtube_url, school, year, sid))
-    thread.daemon = True
-    thread.start()
+    # Check queue capacity
+    pending = job_queue.qsize()
+    if pending >= MAX_QUEUE_SIZE + 1:
+        return jsonify({"error": "Server is busy. Please try again in a few minutes."}), 429
 
-    return jsonify({"status": "started", "cached": cached})
+    job = {"url": youtube_url, "school": school, "year": year, "sid": sid}
+    job_queue.put(job)
+    position = job_queue.qsize()
+
+    if position > 1 or active_job is not None:
+        socketio.emit("queue_position", {"position": position, "total": pending + 1}, to=sid)
+
+    return jsonify({"status": "queued", "cached": cached, "position": position})
 
 
 if __name__ == "__main__":
