@@ -1,111 +1,94 @@
-# Commencement Speech-to-Text & Profile Enrichment Pipeline
+# commencement.stt
 
-A pipeline for transcribing commencement ceremonies and building graduate profiles using AI.
+Extract every graduate from a commencement ceremony video.
 
-## Setup
+Paste a YouTube link, get a structured list of graduates and their degree programs.
+
+## Architecture
+
+```
+Browser (johnzhou.xyz)
+    |
+Cloudflare Tunnel
+    |
+Your Mac running app.py on port 3002
+    |
+    +-- yt-dlp: downloads YouTube audio
+    +-- Groq Whisper API: transcribes audio
+    +-- OpenAI GPT-4o: extracts graduates + degree programs
+    +-- SQLite: caches transcripts + stores results
+```
+
+## Local setup
+
+### 1. Install dependencies
 
 ```bash
+brew install ffmpeg
 pip install -r requirements.txt
-export OPENAI_API_KEY="sk-your-api-key-here"
 ```
 
-## Usage
-
-### Run the full pipeline
+### 2. Set environment variables
 
 ```bash
-python run_pipeline.py ceremony.mp3 MIT 2025
-
-# Test with a small sample first
-python run_pipeline.py ceremony.mp3 MIT 2025 --sample 5
+export GROQ_API_KEY="your-groq-key"
+export OPENAI_API_KEY="your-openai-key"
 ```
 
-### Or run each step individually
+### 3. Run the server
 
 ```bash
-# Step 1: Transcribe audio (free, runs locally with Whisper Large V3)
-python download_text.py ceremony.mp3
-
-# Step 2: Extract graduate names and metadata (GPT-4o, ~$0.25)
-python extract_metadata.py ceremony_transcript.txt MIT 2025
-
-# Step 3: Enrich profiles with web research (GPT-5.1 Responses API, ~$0.10-0.30/person)
-python enrich_profiles.py mit_2025_graduates.json --sample 5   # test first
-python enrich_profiles.py mit_2025_graduates.json              # then all
-python enrich_profiles.py mit_2025_graduates.json "Jane Smith" # or one person
+python app.py
 ```
 
-## Pipeline
+Server starts on http://localhost:3002.
 
-```
-ceremony.mp3
-  |
-  v
-[Step 1: download_text.py] -- Whisper Large V3, local, free
-  |  outputs: *_transcript.{txt,json,srt,vtt}
-  v
-[Step 2: extract_metadata.py <transcript> <school> <year>] -- GPT-4o
-  |  outputs: {school}_{year}_graduates.json
-  v
-[Step 3: enrich_profiles.py <graduates.json>] -- GPT-5.1 + web search + reasoning
-  |  outputs: {school}_{year}_enriched.json
-  v
-Done: enriched profiles with LinkedIn, GitHub, publications, experience, etc.
-```
-
-## Step details
-
-### Step 1: Transcription (`download_text.py`)
-
-Converts audio/video to text using Whisper Large V3. Supports MP3, WAV, FLAC, M4A, OGG, MP4, MOV, AVI.
-
-- Word-level timestamps
-- Voice Activity Detection (filters silence)
-- Auto-detects GPU/CPU
-- Outputs: plain text, JSON with timestamps, SRT subtitles, VTT subtitles
-- Performance: ~2-3hrs for 1hr audio on CPU, ~12-30min on GPU
-
-### Step 2: Metadata extraction (`extract_metadata.py`)
-
-Extracts structured graduate data from the transcript using GPT-4o.
+### 4. (Optional) Expose via Cloudflare Tunnel
 
 ```bash
-python extract_metadata.py <transcript_file> <school> <year>
+brew install cloudflared
+cloudflared tunnel login
+cloudflared tunnel create commencement
+cloudflared tunnel route dns commencement yourdomain.com
+cloudflared tunnel run commencement
 ```
 
-Extracts groups of graduates by department/program, then parses each into:
-- Name, department, degree type/level, school within university
+## Persistent services (macOS)
 
-### Step 3: Profile enrichment (`enrich_profiles.py`)
+To keep the server and tunnel running after reboot:
 
-Researches each graduate using the OpenAI Responses API with GPT-5.1, high reasoning, and web search.
+**App server** — create a launch agent at `~/Library/LaunchAgents/com.commencement.stt.plist` pointing to a `start.sh` script that sets env vars and runs `python app.py`.
 
-```bash
-python enrich_profiles.py <graduates_json>              # all
-python enrich_profiles.py <graduates_json> --sample N   # first N
-python enrich_profiles.py <graduates_json> "Full Name"  # one person
-```
+**Cloudflare Tunnel** — `sudo cloudflared service install`, then copy your `config.yml` and credentials JSON to `/etc/cloudflared/`.
 
-Produces free-form profiles with citations covering education, experience, publications, online presence, and achievements.
+## How it works
 
-## Cost estimate (300 graduates, 1hr ceremony)
+1. **Download** — yt-dlp grabs the audio from YouTube
+2. **Transcribe** — Audio is split into 10-min chunks, sent to Groq's Whisper API with rate limit retry
+3. **Find boundaries** — GPT-4o scans the transcript for program/department announcements
+4. **Extract names** — Each program section is sent to GPT-4o to pull out graduate names and their specific degree
+5. **Store** — Results saved to SQLite (graduates table + transcript cache)
 
-| Step | Time | Cost |
-|------|------|------|
-| Transcription | 2-3hrs (CPU) | Free |
-| Metadata extraction | 30-60s | ~$0.25 |
-| Profile enrichment | 50-100min | ~$30-90 |
+Transcripts are cached by YouTube video ID so re-processing the same video skips transcription.
 
-## Test data
+## Features
 
-`test_audio/mit_2025_graduates.json` contains extracted metadata for 300+ MIT 2025 graduates, ready for enrichment testing.
+- Real-time progress via WebSocket
+- Job queue (1 active, max 5 waiting)
+- Refresh-resistant (reconnects to active jobs)
+- Cancel button
+- CSV download
+- Cost tracking (Groq audio + OpenAI tokens)
+- Transcript caching in DB
 
-## Troubleshooting
+## Cost per ceremony
 
-- **"No OpenAI API key"**: `export OPENAI_API_KEY="sk-..."`
-- **Transcription too slow**: Use `model_size="medium"` or `"small"` in `download_text.py`
-- **Rate limit exceeded**: Increase `time.sleep()` delay in `enrich_profiles.py`
-- **"ValueError: Requested float16 compute type"**: Handled automatically (uses int8 on CPU)
+| Step | Cost |
+|------|------|
+| Transcription (Groq) | ~$0.003/min of audio |
+| Boundary detection (GPT-4o) | ~$0.01-0.05 |
+| Name extraction (GPT-4o) | ~$0.05-0.15 |
+| **Typical 2hr ceremony** | **~$0.50-1.00** |
 
 ## License
 
