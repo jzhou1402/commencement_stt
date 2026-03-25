@@ -41,6 +41,22 @@ def _rows_to_dicts(cur, rows):
     return [dict(r) for r in rows]
 
 
+def _migrate(conn):
+    """Add columns that may be missing from older schemas."""
+    cur = conn.cursor()
+    try:
+        if DATABASE_URL:
+            cur.execute("ALTER TABLE videos ADD COLUMN IF NOT EXISTS transcript TEXT")
+        else:
+            # SQLite doesn't support IF NOT EXISTS for ALTER TABLE
+            cur.execute("PRAGMA table_info(videos)")
+            cols = [row[1] if DATABASE_URL else row["name"] for row in cur.fetchall()]
+            if "transcript" not in cols:
+                cur.execute("ALTER TABLE videos ADD COLUMN transcript TEXT")
+    except Exception:
+        pass  # column already exists
+
+
 def init_db():
     with get_conn() as conn:
         cur = conn.cursor()
@@ -170,5 +186,7 @@ def get_graduates_by_video(video_id):
         return _rows_to_dicts(cur, cur.fetchall())
 
 
-# Initialize on import
+# Initialize and migrate on import
 init_db()
+with get_conn() as _conn:
+    _migrate(_conn)
