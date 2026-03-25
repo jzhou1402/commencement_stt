@@ -1,51 +1,161 @@
 #!/usr/bin/env python3
 """
 Web UI for commencement pipeline. Run on port 3002.
-
-Usage:
-    python app.py
 """
 
 import os
 import json
 import hashlib
+import re
 import threading
 from queue import Queue
 from pathlib import Path
 
 from flask import Flask, render_template, request, jsonify
 from flask_socketio import SocketIO
-from db import save_video, save_graduates
+from db import save_video, save_graduates, get_cached_transcript, save_transcript, get_graduates_by_video
+from costs import CostTracker
 
 app = Flask(__name__)
 app.config["SECRET_KEY"] = "commencement-stt"
 socketio = SocketIO(app, cors_allowed_origins="*")
 
 DOWNLOADS_DIR = Path("downloads")
-CACHE_DIR = Path("cache")
 DOWNLOADS_DIR.mkdir(exist_ok=True)
-CACHE_DIR.mkdir(exist_ok=True)
 
-CACHE_INDEX_PATH = CACHE_DIR / "transcripts.json"
-
-# Job queue — process one at a time, max 5 waiting
+# --- Job system ---
 MAX_QUEUE_SIZE = 5
-job_queue = Queue(maxsize=MAX_QUEUE_SIZE + 1)  # +1 for the active job
+job_queue = Queue(maxsize=MAX_QUEUE_SIZE + 1)
 queue_lock = threading.Lock()
-active_job = None  # track what's currently processing
+active_job = None  # {"key": ..., "url": ..., "school": ..., "year": ..., "sids": set(), "cancel": Event}
+cancelled_keys = set()
+
+
+def url_key(url):
+    m = re.search(r"(?:v=|youtu\.be/|shorts/)([\w-]{11})", url)
+    if m:
+        return m.group(1)
+    return hashlib.sha256(url.encode()).hexdigest()[:16]
+
+
+@socketio.on("connect")
+def on_connect():
+    pass
+
+
+@socketio.on("disconnect")
+def on_disconnect():
+    sid = request.sid
+    # Remove queued jobs for this socket
+    with queue_lock:
+        remaining = []
+        while not job_queue.empty():
+            remaining.append(job_queue.get_nowait())
+        for job in remaining:
+            job["sids"].discard(sid)
+            if job["sids"]:
+                job_queue.put(job)
+            else:
+                print(f"  Removed queued job {job['key']} (no listeners)", flush=True)
+    # Remove from active job listeners (but don't cancel — it may finish for the DB)
+    if active_job:
+        active_job["sids"].discard(sid)
+
+
+@socketio.on("reconnect_job")
+def on_reconnect_job(data):
+    """Client reconnected and wants to reattach to their job."""
+    video_key = data.get("key")
+    sid = request.sid
+    if not video_key:
+        return
+
+    # Check if it's the active job
+    if active_job and active_job["key"] == video_key:
+        active_job["sids"].add(sid)
+        socketio.emit("status", {"step": "metadata", "message": "Reconnected to active job..."}, to=sid)
+        return
+
+    # Check if it's queued
+    with queue_lock:
+        for i, job in enumerate(list(job_queue.queue)):
+            if job["key"] == video_key:
+                job["sids"].add(sid)
+                socketio.emit("queue_position", {"position": i + 1, "total": job_queue.qsize()}, to=sid)
+                return
+
+    # Job finished while we were away — check DB for results
+    graduates = get_graduates_by_video(video_key)
+    if graduates:
+        socketio.emit("metadata_complete", {
+            "total_graduates": len(graduates),
+            "groups": 0,
+            "graduates": graduates,
+        }, to=sid)
+        socketio.emit("pipeline_complete", {"message": "Results loaded from database."}, to=sid)
+
+
+@socketio.on("cancel_job")
+def on_cancel_job(data):
+    video_key = data.get("key")
+    sid = request.sid
+    if not video_key:
+        return
+
+    # Cancel active job
+    if active_job and active_job["key"] == video_key:
+        active_job["cancel"].set()
+        socketio.emit("status", {"step": "cancel", "message": "Cancelling..."}, to=sid)
+        return
+
+    # Remove from queue
+    with queue_lock:
+        remaining = []
+        while not job_queue.empty():
+            remaining.append(job_queue.get_nowait())
+        for job in remaining:
+            if job["key"] != video_key:
+                job_queue.put(job)
+            else:
+                print(f"  Cancelled queued job {video_key}", flush=True)
+
+    socketio.emit("job_cancelled", {}, to=sid)
+    _notify_queue_positions()
+
+
+def _emit(event, data, job):
+    """Emit to all listeners of a job."""
+    for sid in list(job["sids"]):
+        socketio.emit(event, data, to=sid)
+
+
+def _check_cancel(job):
+    """Raise if job was cancelled."""
+    if job["cancel"].is_set():
+        raise CancelledError()
+
+
+class CancelledError(Exception):
+    pass
 
 
 def queue_worker():
-    """Background worker that processes jobs one at a time."""
     global active_job
     while True:
         job = job_queue.get()
+        if not job["sids"]:
+            print(f"  Skipping job {job['key']} (no listeners)", flush=True)
+            job_queue.task_done()
+            continue
         active_job = job
         _notify_queue_positions()
         try:
-            run_pipeline(job["url"], job["school"], job["year"], job["sid"])
+            run_pipeline(job)
+        except CancelledError:
+            _emit("job_cancelled", {}, job)
+            print(f"  Job {job['key']} cancelled", flush=True)
         except Exception as e:
-            socketio.emit("error", {"message": str(e)}, to=job["sid"])
+            _emit("error", {"message": str(e)}, job)
         finally:
             active_job = None
             job_queue.task_done()
@@ -53,54 +163,32 @@ def queue_worker():
 
 
 def _notify_queue_positions():
-    """Tell all queued clients their position."""
     with queue_lock:
         items = list(job_queue.queue)
     for i, job in enumerate(items):
-        socketio.emit("queue_position", {"position": i + 1, "total": len(items)}, to=job["sid"])
+        _emit("queue_position", {"position": i + 1, "total": len(items)}, job)
 
 
-# Start the single worker thread
 worker_thread = threading.Thread(target=queue_worker, daemon=True)
 worker_thread.start()
 
 
-def load_cache():
-    if CACHE_INDEX_PATH.exists():
-        with open(CACHE_INDEX_PATH) as f:
-            return json.load(f)
-    return {}
+# --- YouTube download ---
 
-
-def save_cache(cache):
-    with open(CACHE_INDEX_PATH, "w") as f:
-        json.dump(cache, f, indent=2)
-
-
-def url_key(url):
-    """Stable cache key from a YouTube URL (normalize to video ID if possible)."""
-    import re
-    m = re.search(r"(?:v=|youtu\.be/|shorts/)([\w-]{11})", url)
-    if m:
-        return m.group(1)
-    return hashlib.sha256(url.encode()).hexdigest()[:16]
-
-
-def download_youtube_audio(url, sid):
-    """Download audio from YouTube URL via yt-dlp. Returns path to audio file."""
+def download_youtube_audio(url, job):
     import yt_dlp
 
     key = url_key(url)
     output_path = str(DOWNLOADS_DIR / f"{key}.%(ext)s")
 
-    socketio.emit("status", {"step": "download", "message": "Downloading audio from YouTube..."}, to=sid)
+    _emit("status", {"step": "download", "message": "Downloading audio from YouTube..."}, job)
 
     def progress_hook(d):
         if d["status"] == "downloading":
             pct = d.get("_percent_str", "").strip()
-            socketio.emit("download_progress", {"message": f"Downloading... {pct}"}, to=sid)
+            _emit("download_progress", {"message": f"Downloading... {pct}"}, job)
         elif d["status"] == "finished":
-            socketio.emit("download_progress", {"message": "Download complete, extracting audio..."}, to=sid)
+            _emit("download_progress", {"message": "Download complete, extracting audio..."}, job)
 
     ydl_opts = {
         "format": "bestaudio/best",
@@ -117,18 +205,18 @@ def download_youtube_audio(url, sid):
 
     audio_path = DOWNLOADS_DIR / f"{key}.mp3"
     if not audio_path.exists():
-        # yt-dlp may have used a different extension
         for f in DOWNLOADS_DIR.glob(f"{key}.*"):
             if f.suffix != ".part":
                 audio_path = f
                 break
 
-    socketio.emit("status", {"step": "download", "message": f"Downloaded: {title}"}, to=sid)
+    _emit("status", {"step": "download", "message": f"Downloaded: {title}"}, job)
     return str(audio_path), title
 
 
+# --- Audio processing ---
+
 def get_audio_duration(filepath):
-    """Get duration in seconds via ffprobe."""
     import subprocess
     result = subprocess.run(
         ["ffprobe", "-v", "quiet", "-show_entries", "format=duration", "-of", "csv=p=0", filepath],
@@ -138,34 +226,32 @@ def get_audio_duration(filepath):
 
 
 def split_audio(filepath, chunk_seconds=600):
-    """Split audio into chunks using ffmpeg. Returns list of chunk file paths."""
     import subprocess
     duration = get_audio_duration(filepath)
     base = Path(filepath)
     chunks = []
     start = 0
     i = 0
-
     while start < duration:
         chunk_path = base.parent / f"{base.stem}_chunk{i:03d}.mp3"
-        cmd = [
+        subprocess.run([
             "ffmpeg", "-y", "-i", filepath,
             "-ss", str(start), "-t", str(chunk_seconds),
-            "-acodec", "libmp3lame", "-b:a", "64k", "-ac", "1",  # mono 64k to stay under 25MB
+            "-acodec", "libmp3lame", "-b:a", "64k", "-ac", "1",
             str(chunk_path),
-        ]
-        subprocess.run(cmd, capture_output=True)
+        ], capture_output=True)
         if chunk_path.exists() and chunk_path.stat().st_size > 0:
             chunks.append((str(chunk_path), start))
         start += chunk_seconds
         i += 1
-
     return chunks, duration
 
 
-def transcribe_audio(filepath, sid):
-    """Transcribe audio using Groq Whisper API, splitting into chunks for long files."""
+# --- Transcription ---
+
+def transcribe_audio(filepath, job, cost_tracker=None):
     from groq import Groq
+    import time as _time
 
     groq_key = os.environ.get("GROQ_API_KEY")
     if not groq_key:
@@ -173,26 +259,29 @@ def transcribe_audio(filepath, sid):
 
     client = Groq(api_key=groq_key)
 
-    socketio.emit("status", {"step": "transcribe", "message": "Splitting audio into chunks..."}, to=sid)
+    _emit("status", {"step": "transcribe", "message": "Splitting audio into chunks..."}, job)
     chunks, duration = split_audio(filepath)
+
+    if cost_tracker:
+        cost_tracker.add_groq_audio(duration)
     print(f"  Split into {len(chunks)} chunks, duration={duration:.0f}s", flush=True)
 
-    socketio.emit("transcription_info", {"duration": duration, "language": "en"}, to=sid)
-    socketio.emit("status", {"step": "transcribe", "message": f"Transcribing {len(chunks)} chunks via Groq..."}, to=sid)
+    _emit("transcription_info", {"duration": duration, "language": "en"}, job)
+    _emit("status", {"step": "transcribe", "message": f"Transcribing {len(chunks)} chunks via Groq..."}, job)
 
     all_segments = []
     full_text = []
 
     for i, (chunk_path, offset) in enumerate(chunks):
-        pct = round(((i) / len(chunks)) * 100, 1)
-        socketio.emit(
-            "transcription_progress",
-            {"percent": pct, "current_time": round(offset, 1), "duration": round(duration, 1), "latest_text": f"Chunk {i+1}/{len(chunks)}..."},
-            to=sid,
-        )
+        _check_cancel(job)
+
+        pct = round((i / len(chunks)) * 100, 1)
+        _emit("transcription_progress", {
+            "percent": pct, "current_time": round(offset, 1),
+            "duration": round(duration, 1), "latest_text": f"Chunk {i+1}/{len(chunks)}..."
+        }, job)
         print(f"  Transcribing chunk {i+1}/{len(chunks)} (offset={offset:.0f}s)...", flush=True)
 
-        # Retry with backoff on rate limit
         max_retries = 5
         for attempt in range(max_retries):
             try:
@@ -206,158 +295,131 @@ def transcribe_audio(filepath, sid):
                 break
             except Exception as e:
                 if "rate_limit" in str(e).lower() or "429" in str(e):
-                    import re, time as _time
-                    # Parse wait time from error message
                     wait_match = re.search(r"try again in (\d+)m?([\d.]+)?s", str(e))
                     if wait_match:
                         wait = int(wait_match.group(1)) * 60 + float(wait_match.group(2) or 0)
                     else:
                         wait = 30 * (attempt + 1)
-                    wait = min(wait + 5, 300)  # add buffer, cap at 5 min
+                    wait = min(wait + 5, 300)
                     print(f"  Rate limited, waiting {wait:.0f}s (attempt {attempt+1}/{max_retries})...", flush=True)
-                    socketio.emit(
-                        "transcription_progress",
-                        {"percent": pct, "current_time": round(offset, 1), "duration": round(duration, 1),
-                         "latest_text": f"Rate limited, retrying in {int(wait)}s..."},
-                        to=sid,
-                    )
+                    _emit("transcription_progress", {
+                        "percent": pct, "current_time": round(offset, 1),
+                        "duration": round(duration, 1),
+                        "latest_text": f"Rate limited, retrying in {int(wait)}s..."
+                    }, job)
                     _time.sleep(wait)
                 else:
                     raise
         else:
-            raise Exception("Groq rate limit exceeded after max retries. Try again later.")
+            raise Exception("Groq rate limit exceeded after max retries.")
 
-        # Process segments with offset adjustment
         if hasattr(response, "segments") and response.segments:
             for seg in response.segments:
                 seg_data = {
-                    "start": seg.get("start", seg.get("start", 0)) + offset,
-                    "end": seg.get("end", seg.get("end", 0)) + offset,
+                    "start": seg.get("start", 0) + offset,
+                    "end": seg.get("end", 0) + offset,
                     "text": seg.get("text", "").strip(),
                 }
                 if seg_data["text"]:
                     all_segments.append(seg_data)
                     full_text.append(seg_data["text"])
 
-        # Clean up chunk file
         Path(chunk_path).unlink(missing_ok=True)
 
         pct = round(((i + 1) / len(chunks)) * 100, 1)
-        latest = full_text[-1] if full_text else ""
-        socketio.emit(
-            "transcription_progress",
-            {"percent": pct, "current_time": round(offset + 600, 1), "duration": round(duration, 1), "latest_text": latest},
-            to=sid,
-        )
+        _emit("transcription_progress", {
+            "percent": pct, "current_time": round(offset + 600, 1),
+            "duration": round(duration, 1), "latest_text": full_text[-1] if full_text else ""
+        }, job)
         print(f"  Chunk {i+1} done, {len(all_segments)} segments total", flush=True)
-
-    transcript_text = " ".join(full_text)
 
     return {
         "language": "en",
         "duration": duration,
         "segments": all_segments,
-        "full_text": transcript_text,
+        "full_text": " ".join(full_text),
     }
 
 
-def run_pipeline(youtube_url, school, year, sid):
-    """Download YouTube audio, transcribe (or load cache), extract metadata."""
-    key = url_key(youtube_url)
-    cache = load_cache()
+# --- Pipeline ---
 
-    # Check cache
-    if key in cache:
-        socketio.emit("status", {"step": "transcribe", "message": "Found cached transcript, skipping transcription..."}, to=sid)
-        cached = cache[key]
-        transcript_path = cached["transcript_path"]
-        with open(transcript_path) as f:
-            transcript_data = json.load(f)
-        transcript_text = transcript_data["full_text"]
+def run_pipeline(job):
+    url = job["url"]
+    school = job["school"]
+    year = job["year"]
+    key = job["key"]
+    cost = CostTracker()
 
-        socketio.emit("transcription_progress", {"percent": 100, "current_time": transcript_data["duration"], "duration": transcript_data["duration"], "latest_text": "(cached)"}, to=sid)
-        socketio.emit("transcription_complete", {"percent": 100, "total_segments": len(transcript_data["segments"]), "text_length": len(transcript_text), "cached": True}, to=sid)
+    # Check DB cache for transcript
+    transcript_data = get_cached_transcript(key)
+    if transcript_data:
+        _emit("status", {"step": "transcribe", "message": "Found cached transcript..."}, job)
+        _emit("transcription_progress", {"percent": 100, "current_time": transcript_data["duration"], "duration": transcript_data["duration"], "latest_text": "(cached)"}, job)
+        _emit("transcription_complete", {"percent": 100, "total_segments": len(transcript_data["segments"]), "text_length": len(transcript_data["full_text"]), "cached": True}, job)
     else:
-        # Download
-        audio_path, title = download_youtube_audio(youtube_url, sid)
+        _check_cancel(job)
+        audio_path, title = download_youtube_audio(url, job)
 
-        # Transcribe
-        transcript_data = transcribe_audio(audio_path, sid)
-        transcript_text = transcript_data["full_text"]
+        _check_cancel(job)
+        transcript_data = transcribe_audio(audio_path, job, cost_tracker=cost)
 
-        # Save transcript
-        transcript_path = str(CACHE_DIR / f"{key}_transcript.json")
-        with open(transcript_path, "w", encoding="utf-8") as f:
-            json.dump(transcript_data, f, indent=2, ensure_ascii=False)
+        # Cache to DB
+        save_transcript(key, url, title, transcript_data)
 
-        # Update cache
-        cache[key] = {
-            "url": youtube_url,
-            "title": title,
-            "transcript_path": transcript_path,
-        }
-        save_cache(cache)
+        _emit("transcription_complete", {"percent": 100, "total_segments": len(transcript_data["segments"]), "text_length": len(transcript_data["full_text"]), "cached": False}, job)
 
-        socketio.emit("transcription_complete", {"percent": 100, "total_segments": len(transcript_data["segments"]), "text_length": len(transcript_text), "cached": False}, to=sid)
+    _check_cancel(job)
 
-    # Step 2: Metadata extraction (smart program-boundary chunking)
-    socketio.emit("status", {"step": "metadata", "message": "Analyzing transcript for program boundaries..."}, to=sid)
+    # Metadata extraction
+    _emit("status", {"step": "metadata", "message": "Analyzing transcript for program boundaries..."}, job)
 
     from extract_metadata import extract_groups_chunked, convert_groups_to_graduates
 
     def on_chunk_progress(chunk_idx, total_chunks, groups_so_far, status_msg=None):
         if status_msg:
-            socketio.emit("status", {"step": "metadata", "message": status_msg}, to=sid)
-        if total_chunks > 0:
-            pct = round((chunk_idx / total_chunks) * 100, 1)
-        else:
-            pct = 0
+            _emit("status", {"step": "metadata", "message": status_msg}, job)
+        pct = round((chunk_idx / total_chunks) * 100, 1) if total_chunks > 0 else 0
         grad_count = sum(len(g.get("names", [])) for g in groups_so_far)
-        socketio.emit(
-            "metadata_progress",
-            {
-                "percent": pct,
-                "chunk": chunk_idx,
-                "total_chunks": total_chunks,
-                "groups_so_far": len(groups_so_far),
-                "graduates_so_far": grad_count,
-            },
-            to=sid,
-        )
+        _emit("metadata_progress", {
+            "percent": pct, "chunk": chunk_idx, "total_chunks": total_chunks,
+            "groups_so_far": len(groups_so_far), "graduates_so_far": grad_count,
+        }, job)
 
     groups = extract_groups_chunked(
-        transcript_data, school, int(year), on_progress=on_chunk_progress
+        transcript_data, school, int(year), on_progress=on_chunk_progress, cost_tracker=cost
     )
     data = convert_groups_to_graduates(groups, school, int(year))
     graduates = data.get("graduates", [])
 
-    graduates_filename = f"{school.lower()}_{year}_graduates.json"
-    graduates_path = CACHE_DIR / graduates_filename
-    with open(graduates_path, "w", encoding="utf-8") as f:
-        json.dump(data, f, indent=2, ensure_ascii=False)
-
     # Persist to database
-    video_title = load_cache().get(key, {}).get("title", youtube_url)
-    save_video(key, youtube_url, video_title, school, int(year), str(graduates_path))
+    save_video(key, url, "", school, int(year))
     save_graduates(key, graduates, school, int(year))
 
-    socketio.emit(
-        "metadata_complete",
-        {
-            "total_graduates": len(graduates),
-            "groups": len(groups),
-            "graduates": graduates,
-            "file": str(graduates_path),
-        },
-        to=sid,
-    )
+    _emit("metadata_complete", {
+        "total_graduates": len(graduates),
+        "groups": len(groups),
+        "graduates": graduates,
+    }, job)
 
-    socketio.emit("pipeline_complete", {"message": "Pipeline complete!", "graduates_file": str(graduates_path)}, to=sid)
+    cost_summary = cost.summary()
+    print(f"  Cost: ${cost_summary['total_cost']:.4f} (Groq: ${cost_summary['groq']['cost']:.4f}, OpenAI: ${cost_summary['openai']['cost']:.4f})", flush=True)
+    _emit("pipeline_complete", {"message": "Pipeline complete!", "cost": cost_summary}, job)
 
+
+# --- Routes ---
 
 @app.route("/")
 def index():
     return render_template("index.html")
+
+
+@app.route("/status")
+def status():
+    """Return current job state for refresh recovery."""
+    active_key = active_job["key"] if active_job else None
+    with queue_lock:
+        queued = [{"key": j["key"], "url": j["url"]} for j in list(job_queue.queue)]
+    return jsonify({"active_key": active_key, "queued": queued})
 
 
 @app.route("/start", methods=["POST"])
@@ -370,27 +432,42 @@ def start():
 
     if not youtube_url:
         return jsonify({"error": "No YouTube URL provided"}), 400
-
     if "youtube.com" not in youtube_url and "youtu.be" not in youtube_url:
         return jsonify({"error": "Not a valid YouTube URL"}), 400
 
     key = url_key(youtube_url)
-    cache = load_cache()
-    cached = key in cache
+
+    # If this video is already active, reattach
+    if active_job and active_job["key"] == key:
+        active_job["sids"].add(sid)
+        return jsonify({"status": "reattached", "position": 0})
+
+    # If already queued, reattach
+    with queue_lock:
+        for job in list(job_queue.queue):
+            if job["key"] == key:
+                job["sids"].add(sid)
+                return jsonify({"status": "reattached", "position": list(job_queue.queue).index(job) + 1})
 
     # Check queue capacity
-    pending = job_queue.qsize()
-    if pending >= MAX_QUEUE_SIZE + 1:
+    if job_queue.qsize() >= MAX_QUEUE_SIZE + 1:
         return jsonify({"error": "Server is busy. Please try again in a few minutes."}), 429
 
-    job = {"url": youtube_url, "school": school, "year": year, "sid": sid}
+    job = {
+        "key": key,
+        "url": youtube_url,
+        "school": school,
+        "year": year,
+        "sids": {sid},
+        "cancel": threading.Event(),
+    }
     job_queue.put(job)
     position = job_queue.qsize()
 
     if position > 1 or active_job is not None:
-        socketio.emit("queue_position", {"position": position, "total": pending + 1}, to=sid)
+        socketio.emit("queue_position", {"position": position, "total": position}, to=sid)
 
-    return jsonify({"status": "queued", "cached": cached, "position": position})
+    return jsonify({"status": "queued", "key": key, "position": position})
 
 
 if __name__ == "__main__":

@@ -96,7 +96,7 @@ Rules:
 5. If there are no graduate names in this chunk, return {{"groups": []}}"""
 
 
-def find_program_boundaries(segments, school, year, client, on_status=None):
+def find_program_boundaries(segments, school, year, client, on_status=None, cost_tracker=None):
     """
     Use LLM to identify segment indices where new programs/departments are announced.
 
@@ -145,6 +145,8 @@ def find_program_boundaries(segments, school, year, client, on_status=None):
             response_format={"type": "json_object"},
             temperature=0.0,
         )
+        if cost_tracker:
+            cost_tracker.add_openai_usage(response)
         data = json.loads(response.choices[0].message.content)
         all_boundaries.extend(data.get("boundaries", []))
 
@@ -184,7 +186,7 @@ def chunk_by_program(segments, boundaries):
     return chunks
 
 
-def _extract_groups_from_chunk(chunk_text, program_context, school, year, client):
+def _extract_groups_from_chunk(chunk_text, program_context, school, year, client, cost_tracker=None):
     """Extract groups of names with their specific programs from a chunk."""
     response = client.chat.completions.create(
         model="gpt-4o",
@@ -203,6 +205,8 @@ def _extract_groups_from_chunk(chunk_text, program_context, school, year, client
         response_format={"type": "json_object"},
         temperature=0.0,
     )
+    if cost_tracker:
+        cost_tracker.add_openai_usage(response)
     data = json.loads(response.choices[0].message.content)
     groups = data.get("groups", [])
     # Normalize: ensure each group has "description" key for downstream compat
@@ -212,7 +216,7 @@ def _extract_groups_from_chunk(chunk_text, program_context, school, year, client
     return groups
 
 
-def extract_groups_chunked(transcript_data, school, year, api_key=None, on_progress=None):
+def extract_groups_chunked(transcript_data, school, year, api_key=None, on_progress=None, cost_tracker=None):
     """
     Extract graduate groups from transcript using smart program-boundary chunking.
 
@@ -251,7 +255,7 @@ def extract_groups_chunked(transcript_data, school, year, api_key=None, on_progr
 
     # Step 1: Find program boundaries
     on_status("Identifying program/department boundaries...")
-    boundaries = find_program_boundaries(segments, school, year, client, on_status=on_status)
+    boundaries = find_program_boundaries(segments, school, year, client, on_status=on_status, cost_tracker=cost_tracker)
     print(f"  Found {len(boundaries)} program boundaries", flush=True)
 
     # Step 2: Chunk by program
@@ -272,7 +276,7 @@ def extract_groups_chunked(transcript_data, school, year, api_key=None, on_progr
                 on_progress(i + 1, total, all_groups)
             continue
 
-        groups = _extract_groups_from_chunk(chunk_text, program_desc, school, year, client)
+        groups = _extract_groups_from_chunk(chunk_text, program_desc, school, year, client, cost_tracker=cost_tracker)
         all_groups.extend(groups)
 
         if on_progress:

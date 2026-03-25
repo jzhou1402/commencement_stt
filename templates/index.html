@@ -169,6 +169,7 @@
             </div>
             <div class="status" id="statusMessage">Preparing...</div>
             <div class="latest" id="latestText"></div>
+            <button class="btn" id="cancelBtn" style="margin-top: 16px; background: #fff; color: #c00; border: 1px solid #c00; display: none;">Cancel</button>
         </div>
 
         <!-- Results -->
@@ -188,6 +189,20 @@
                         <tbody id="graduatesBody"></tbody>
                     </table>
                 </div>
+                <div style="display: flex; gap: 12px; margin-top: 24px;">
+                    <button class="btn" id="downloadCsv" style="flex:1; background: #fff; color: #1a1a1a; border: 1px solid #ccc;">Download CSV</button>
+                    <button class="btn" id="tipBtn" style="flex:1; background: #008CFF; color: #fff;">Leave a tip</button>
+                </div>
+            </div>
+        </div>
+
+        <!-- Tip modal -->
+        <div id="tipModal" style="display:none; position:fixed; top:0; left:0; width:100%; height:100%; background:rgba(0,0,0,0.5); z-index:100; justify-content:center; align-items:center;">
+            <div style="background:#fff; border-radius:12px; padding:40px; max-width:360px; text-align:center; position:relative;">
+                <button id="tipClose" style="position:absolute; top:12px; right:16px; background:none; border:none; font-size:20px; cursor:pointer; color:#999;">&times;</button>
+                <h3 style="font-family:'Times New Roman',serif; font-size:20px; font-weight:400; margin-bottom:8px;">Thank you!</h3>
+                <p style="font-family:'Times New Roman',serif; font-size:14px; color:#666; margin-bottom:20px;">Scan to tip via Venmo</p>
+                <div id="venmoQr" style="width:200px; height:200px; margin:0 auto; background:#f0f0f0; border:1px solid #ddd; border-radius:8px; display:flex; align-items:center; justify-content:center; color:#999; font-family:'Times New Roman',serif; font-size:13px;">QR code coming soon</div>
             </div>
         </div>
 
@@ -208,22 +223,41 @@
         const socket = io();
         const urlInput = document.getElementById('youtubeUrl');
         const startBtn = document.getElementById('startBtn');
+        const cancelBtn = document.getElementById('cancelBtn');
+        let lastGraduates = [];
+        let activeKey = null;
 
+        // --- Persist & recover job state ---
+        function saveJob(key, url) {
+            activeKey = key;
+            localStorage.setItem('stt_job_key', key);
+            localStorage.setItem('stt_job_url', url);
+        }
+        function clearJob() {
+            activeKey = null;
+            localStorage.removeItem('stt_job_key');
+            localStorage.removeItem('stt_job_url');
+            cancelBtn.style.display = 'none';
+        }
+
+        // On load: try to reconnect to an in-progress job
+        socket.on('connect', () => {
+            const savedKey = localStorage.getItem('stt_job_key');
+            if (savedKey) {
+                activeKey = savedKey;
+                showProgress();
+                document.getElementById('statusMessage').textContent = 'Reconnecting...';
+                socket.emit('reconnect_job', { key: savedKey });
+            }
+        });
+
+        // --- Start ---
         startBtn.addEventListener('click', () => {
             const url = urlInput.value.trim();
             if (!url) { urlInput.focus(); return; }
 
             startBtn.disabled = true;
-            document.getElementById('progressSection').classList.add('active');
-            document.getElementById('resultsSection').classList.remove('active');
-            document.getElementById('errorMessage').classList.remove('active');
-            document.getElementById('progressBar').style.width = '0%';
-            document.getElementById('latestText').textContent = '';
-
-            ['stepDownload', 'stepTranscribe', 'stepMetadata'].forEach(id => {
-                document.getElementById(id).className = 'step-item';
-            });
-            document.getElementById('stepDownload').classList.add('active');
+            showProgress();
 
             fetch('/start', {
                 method: 'POST',
@@ -236,11 +270,43 @@
                 }),
             })
                 .then(r => r.json())
-                .then(data => { if (data.error) showError(data.error); })
+                .then(data => {
+                    if (data.error) { showError(data.error); return; }
+                    if (data.key) saveJob(data.key, url);
+                    cancelBtn.style.display = 'block';
+                })
                 .catch(err => showError(err.message));
         });
 
         urlInput.addEventListener('keydown', (e) => { if (e.key === 'Enter') startBtn.click(); });
+
+        // --- Cancel ---
+        cancelBtn.addEventListener('click', () => {
+            if (activeKey) {
+                socket.emit('cancel_job', { key: activeKey });
+            }
+        });
+
+        socket.on('job_cancelled', () => {
+            clearJob();
+            document.getElementById('progressSection').classList.remove('active');
+            document.getElementById('statusMessage').textContent = '';
+            startBtn.disabled = false;
+        });
+
+        // --- Progress events ---
+        function showProgress() {
+            document.getElementById('progressSection').classList.add('active');
+            document.getElementById('resultsSection').classList.remove('active');
+            document.getElementById('errorMessage').classList.remove('active');
+            document.getElementById('progressBar').style.width = '0%';
+            document.getElementById('latestText').textContent = '';
+            ['stepDownload', 'stepTranscribe', 'stepMetadata'].forEach(id => {
+                document.getElementById(id).className = 'step-item';
+            });
+            document.getElementById('stepDownload').classList.add('active');
+            cancelBtn.style.display = 'block';
+        }
 
         socket.on('status', (data) => {
             document.getElementById('queueMessage').style.display = 'none';
@@ -292,6 +358,7 @@
             document.getElementById('stepMetadata').className = 'step-item done';
             document.getElementById('totalCount').textContent = data.total_graduates;
             document.getElementById('groupCount').textContent = data.groups;
+            lastGraduates = data.graduates;
 
             const tbody = document.getElementById('graduatesBody');
             tbody.innerHTML = '';
@@ -307,8 +374,15 @@
             document.getElementById('resultsSection').classList.add('active');
         });
 
-        socket.on('pipeline_complete', () => {
-            document.getElementById('statusMessage').textContent = 'Done.';
+        socket.on('pipeline_complete', (data) => {
+            clearJob();
+            let msg = 'Done.';
+            if (data && data.cost) {
+                msg += ' Cost: $' + data.cost.total_cost.toFixed(4);
+                msg += ' (Groq: $' + data.cost.groq.cost.toFixed(4);
+                msg += ', OpenAI: $' + data.cost.openai.cost.toFixed(4) + ')';
+            }
+            document.getElementById('statusMessage').textContent = msg;
             startBtn.disabled = false;
         });
 
@@ -322,13 +396,45 @@
             }
         });
 
-        socket.on('error', (data) => { showError(data.message); startBtn.disabled = false; });
+        socket.on('error', (data) => {
+            showError(data.message);
+            clearJob();
+            startBtn.disabled = false;
+        });
 
         function showError(msg) {
             const el = document.getElementById('errorMessage');
             el.textContent = msg;
             el.classList.add('active');
         }
+
+        // --- CSV download ---
+        document.getElementById('downloadCsv').addEventListener('click', () => {
+            if (!lastGraduates.length) return;
+            const header = 'Name,Degree\n';
+            const rows = lastGraduates.map(g => {
+                const name = '"' + (g.name || '').replace(/"/g, '""') + '"';
+                const degree = '"' + (g.degree || '').replace(/"/g, '""') + '"';
+                return name + ',' + degree;
+            }).join('\n');
+            const blob = new Blob([header + rows], { type: 'text/csv' });
+            const a = document.createElement('a');
+            a.href = URL.createObjectURL(blob);
+            a.download = 'graduates.csv';
+            a.click();
+        });
+
+        // --- Tip modal ---
+        document.getElementById('tipBtn').addEventListener('click', () => {
+            document.getElementById('tipModal').style.display = 'flex';
+        });
+        document.getElementById('tipClose').addEventListener('click', () => {
+            document.getElementById('tipModal').style.display = 'none';
+        });
+        document.getElementById('tipModal').addEventListener('click', (e) => {
+            if (e.target === document.getElementById('tipModal'))
+                document.getElementById('tipModal').style.display = 'none';
+        });
 
         function escapeHtml(str) {
             const div = document.createElement('div');
