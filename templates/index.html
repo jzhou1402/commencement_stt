@@ -137,8 +137,18 @@
         <h1>commencement.stt</h1>
         <p class="tagline">Extract every graduate from a commencement ceremony.</p>
 
-        <!-- Input -->
-        <div class="section">
+        <!-- Invite gate -->
+        <div class="section" id="inviteSection">
+            <h2>Enter invite code</h2>
+            <div class="form-group" style="margin-bottom: 16px;">
+                <input type="text" id="inviteCode" placeholder="three-word-code" autocomplete="off" style="text-align:center; letter-spacing: 1px;">
+            </div>
+            <button class="btn" id="inviteBtn">Enter</button>
+            <p id="inviteError" style="display:none; color:#c00; font-size:13px; margin-top:12px; text-align:center;">Invalid invite code.</p>
+        </div>
+
+        <!-- Input (hidden until invited) -->
+        <div class="section" id="mainSection" style="display:none;">
             <h2>Process a ceremony</h2>
             <div class="form-group" style="margin-bottom: 16px;">
                 <label>YouTube URL</label>
@@ -219,6 +229,34 @@
     </div>
 
     <script>
+        const INVITE_CODE = 'caps-fly-high';
+
+        // Invite gate
+        const inviteSection = document.getElementById('inviteSection');
+        const mainSection = document.getElementById('mainSection');
+
+        function unlockApp() {
+            inviteSection.style.display = 'none';
+            mainSection.style.display = 'block';
+        }
+
+        if (localStorage.getItem('stt_invited') === 'true') {
+            unlockApp();
+        }
+
+        document.getElementById('inviteBtn').addEventListener('click', checkInvite);
+        document.getElementById('inviteCode').addEventListener('keydown', (e) => { if (e.key === 'Enter') checkInvite(); });
+
+        function checkInvite() {
+            const code = document.getElementById('inviteCode').value.trim().toLowerCase();
+            if (code === INVITE_CODE) {
+                localStorage.setItem('stt_invited', 'true');
+                unlockApp();
+            } else {
+                document.getElementById('inviteError').style.display = 'block';
+            }
+        }
+
         const socket = io();
         const urlInput = document.getElementById('youtubeUrl');
         const startBtn = document.getElementById('startBtn');
