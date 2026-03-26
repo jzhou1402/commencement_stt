@@ -346,6 +346,7 @@ def transcribe_audio(filepath, job, cost_tracker=None):
 def run_pipeline(job):
     url = job["url"]
     school = job["school"]
+    term = job.get("term", "")
     year = job["year"]
     key = job["key"]
     cost = CostTracker()
@@ -392,7 +393,7 @@ def run_pipeline(job):
     graduates = data.get("graduates", [])
 
     # Persist to database
-    save_video(key, url, "", school, int(year))
+    save_video(key, url, "", school, int(year), term)
     save_graduates(key, graduates, school, int(year))
 
     _emit("metadata_complete", {
@@ -429,6 +430,7 @@ def start():
     data = request.get_json()
     youtube_url = data.get("url", "").strip()
     school = data.get("school", "Unknown")
+    term = data.get("term", "")
     year = data.get("year", "2025")
     sid = data.get("sid")
     ip = request.headers.get("CF-Connecting-IP") or request.headers.get("X-Forwarded-For", "").split(",")[0].strip() or request.remote_addr
@@ -468,6 +470,7 @@ def start():
         "key": key,
         "url": youtube_url,
         "school": school,
+        "term": term,
         "year": year,
         "sids": {sid},
         "ip": ip,
@@ -490,13 +493,13 @@ def queue_status():
 
     with queue_lock:
         if user_keys:
-            jobs = [{"key": j["key"], "url": j["url"], "school": j["school"], "year": j["year"]} for j in list(job_queue.queue) if j["key"] in user_keys]
+            jobs = [{"key": j["key"], "url": j["url"], "school": j["school"], "term": j.get("term", ""), "year": j["year"]} for j in list(job_queue.queue) if j["key"] in user_keys]
         else:
-            jobs = [{"key": j["key"], "url": j["url"], "school": j["school"], "year": j["year"]} for j in list(job_queue.queue)]
+            jobs = [{"key": j["key"], "url": j["url"], "school": j["school"], "term": j.get("term", ""), "year": j["year"]} for j in list(job_queue.queue)]
 
     active = None
     if active_job and (not user_keys or active_job["key"] in user_keys):
-        active = {"key": active_job["key"], "url": active_job["url"], "school": active_job["school"], "year": active_job["year"]}
+        active = {"key": active_job["key"], "url": active_job["url"], "school": active_job["school"], "term": active_job.get("term", ""), "year": active_job["year"]}
 
     return jsonify({"active": active, "queued": jobs, "max": MAX_PER_IP})
 
@@ -509,9 +512,9 @@ def datasets():
         cur = conn.cursor()
         ph = "%s" if os.environ.get("DATABASE_URL") else "?"
         cur.execute(
-            "SELECT v.id, v.title, v.school, v.year, COUNT(g.id) as grad_count "
+            "SELECT v.id, v.title, v.school, v.year, v.term, COUNT(g.id) as grad_count "
             "FROM videos v JOIN graduates g ON v.id = g.video_id "
-            "GROUP BY v.id, v.title, v.school, v.year "
+            "GROUP BY v.id, v.title, v.school, v.year, v.term "
             "HAVING COUNT(g.id) > 0 "
             "ORDER BY v.school, v.year"
         )

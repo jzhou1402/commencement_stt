@@ -184,6 +184,10 @@
                     <input type="text" id="school" placeholder="e.g. MIT">
                 </div>
                 <div class="form-group">
+                    <label>Term</label>
+                    <input type="text" id="term" placeholder="e.g. Spring">
+                </div>
+                <div class="form-group">
                     <label>Year</label>
                     <input type="number" id="year" placeholder="2025" value="2025">
                 </div>
@@ -350,6 +354,7 @@
                 body: JSON.stringify({
                     url: url,
                     school: document.getElementById('school').value,
+                    term: document.getElementById('term').value,
                     year: document.getElementById('year').value,
                     sid: socket.id,
                 }),
@@ -557,7 +562,7 @@
                 wrapper.style.display = 'block';
                 container.innerHTML = items.map(j =>
                     `<div class="queue-item">
-                        <span class="qi-info">${escapeHtml(j.school)} ${j.year}</span>
+                        <span class="qi-info">${escapeHtml(j.school)} ${j.term ? escapeHtml(j.term) + ' ' : ''}${j.year}</span>
                         <span class="qi-status ${j.isActive ? 'active' : ''}">${j.status}</span>
                     </div>`
                 ).join('');
@@ -585,7 +590,7 @@
                         <div class="dataset-card">
                             <div class="dataset-header">
                                 <div>
-                                    <div class="dataset-title">${escapeHtml(d.school)} ${d.year}</div>
+                                    <div class="dataset-title">${escapeHtml(d.school)} ${d.term ? escapeHtml(d.term) + ' ' : ''}${d.year}</div>
                                     <div class="dataset-meta">${d.grad_count} graduates &middot; <a href="https://youtube.com/watch?v=${d.id}" target="_blank" style="color:#999;">source</a></div>
                                 </div>
                                 <button class="btn-download" onclick="downloadDataset('${d.id}')">Download CSV</button>

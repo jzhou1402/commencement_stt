@@ -47,14 +47,16 @@ def _migrate(conn):
     try:
         if DATABASE_URL:
             cur.execute("ALTER TABLE videos ADD COLUMN IF NOT EXISTS transcript TEXT")
+            cur.execute("ALTER TABLE videos ADD COLUMN IF NOT EXISTS term TEXT DEFAULT ''")
         else:
-            # SQLite doesn't support IF NOT EXISTS for ALTER TABLE
             cur.execute("PRAGMA table_info(videos)")
             cols = [row[1] if DATABASE_URL else row["name"] for row in cur.fetchall()]
             if "transcript" not in cols:
                 cur.execute("ALTER TABLE videos ADD COLUMN transcript TEXT")
+            if "term" not in cols:
+                cur.execute("ALTER TABLE videos ADD COLUMN term TEXT DEFAULT ''")
     except Exception:
-        pass  # column already exists
+        pass
 
 
 def init_db():
@@ -145,24 +147,24 @@ def save_transcript(video_id, url, title, transcript_data):
 
 # --- Videos ---
 
-def save_video(video_id, url, title, school, year):
+def save_video(video_id, url, title, school, year, term=""):
     with get_conn() as conn:
         cur = conn.cursor()
         if DATABASE_URL:
             cur.execute(
-                "INSERT INTO videos (id, url, title, school, year) VALUES (%s, %s, %s, %s, %s) "
-                "ON CONFLICT (id) DO UPDATE SET title=EXCLUDED.title, school=EXCLUDED.school, year=EXCLUDED.year",
-                (video_id, url, title, school, year),
+                "INSERT INTO videos (id, url, title, school, year, term) VALUES (%s, %s, %s, %s, %s, %s) "
+                "ON CONFLICT (id) DO UPDATE SET title=EXCLUDED.title, school=EXCLUDED.school, year=EXCLUDED.year, term=EXCLUDED.term",
+                (video_id, url, title, school, year, term),
             )
         else:
             cur.execute(
-                f"UPDATE videos SET school = {_ph()}, year = {_ph()} WHERE id = {_ph()}",
-                (school, year, video_id),
+                f"UPDATE videos SET school = {_ph()}, year = {_ph()}, term = {_ph()} WHERE id = {_ph()}",
+                (school, year, term, video_id),
             )
             if cur.rowcount == 0:
                 cur.execute(
-                    f"INSERT INTO videos (id, url, title, school, year) VALUES ({_ph(5)})",
-                    (video_id, url, title, school, year),
+                    f"INSERT INTO videos (id, url, title, school, year, term) VALUES ({_ph(6)})",
+                    (video_id, url, title, school, year, term),
                 )
 
 
