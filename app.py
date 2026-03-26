@@ -470,6 +470,56 @@ def start():
     return jsonify({"status": "queued", "key": key, "position": position})
 
 
+@app.route("/datasets")
+def datasets():
+    """Return available datasets with preview."""
+    from db import get_conn, _rows_to_dicts
+    with get_conn() as conn:
+        cur = conn.cursor()
+        ph = "%s" if os.environ.get("DATABASE_URL") else "?"
+        cur.execute(
+            "SELECT v.id, v.title, v.school, v.year, COUNT(g.id) as grad_count "
+            "FROM videos v JOIN graduates g ON v.id = g.video_id "
+            "GROUP BY v.id, v.title, v.school, v.year "
+            "HAVING COUNT(g.id) > 0 "
+            "ORDER BY v.school, v.year"
+        )
+        vids = _rows_to_dicts(cur, cur.fetchall())
+
+        for v in vids:
+            cur.execute(
+                f"SELECT name, degree FROM graduates WHERE video_id = {ph} ORDER BY id LIMIT 10",
+                (v["id"],),
+            )
+            v["preview"] = _rows_to_dicts(cur, cur.fetchall())
+
+    return jsonify(vids)
+
+
+@app.route("/datasets/<video_id>/csv")
+def dataset_csv(video_id):
+    """Download full dataset as CSV."""
+    from db import get_graduates_by_video
+    graduates = get_graduates_by_video(video_id)
+    if not graduates:
+        return "Not found", 404
+
+    import io
+    output = io.StringIO()
+    output.write("Name,Degree\n")
+    for g in graduates:
+        name = '"' + (g["name"] or "").replace('"', '""') + '"'
+        degree = '"' + (g.get("degree") or "").replace('"', '""') + '"'
+        output.write(f"{name},{degree}\n")
+
+    from flask import Response
+    return Response(
+        output.getvalue(),
+        mimetype="text/csv",
+        headers={"Content-Disposition": f"attachment; filename={video_id}_graduates.csv"},
+    )
+
+
 if __name__ == "__main__":
     port = int(os.environ.get("PORT", 3002))
     socketio.run(app, host="0.0.0.0", port=port, debug=False, allow_unsafe_werkzeug=True)

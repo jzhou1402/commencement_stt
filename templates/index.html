@@ -129,6 +129,24 @@
         .about p { font-size: 15px; color: #666; margin-bottom: 12px; }
         .about a { color: #1a1a1a; }
 
+        /* Datasets */
+        .dataset-card { border: 1px solid #eee; border-radius: 8px; padding: 20px; margin-bottom: 16px; }
+        .dataset-toggle { background: none; border: none; font-family: 'Times New Roman', serif; font-size: 13px; color: #999; cursor: pointer; padding: 0; margin-top: 8px; }
+        .dataset-toggle:hover { color: #1a1a1a; }
+        .dataset-preview { display: none; }
+        .dataset-preview.open { display: block; }
+        .dataset-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px; }
+        .dataset-title { font-size: 16px; font-weight: 600; }
+        .dataset-meta { font-size: 13px; color: #999; }
+        .dataset-preview { font-size: 13px; color: #666; }
+        .dataset-preview table { width: 100%; border-collapse: collapse; margin-top: 8px; }
+        .dataset-preview td { padding: 4px 0; border-bottom: 1px solid #f0f0f0; }
+        .dataset-preview .name { }
+        .dataset-preview .degree { color: #999; font-size: 12px; }
+        .dataset-preview .more { color: #999; font-style: italic; padding-top: 8px; }
+        .btn-download { padding: 8px 16px; font-family: 'Times New Roman', serif; font-size: 13px; background: #1a1a1a; color: #fafaf8; border: none; border-radius: 4px; cursor: pointer; white-space: nowrap; }
+        .btn-download:hover { background: #333; }
+
         footer { border-top: 1px solid #ddd; padding-top: 24px; margin-top: 48px; font-size: 13px; color: #999; }
     </style>
 </head>
@@ -208,10 +226,9 @@
 
         <!-- Tip modal -->
         <div id="tipModal" style="display:none; position:fixed; top:0; left:0; width:100%; height:100%; background:rgba(0,0,0,0.5); z-index:100; justify-content:center; align-items:center;">
-            <div style="background:#fff; border-radius:12px; padding:40px; max-width:420px; width:90%; text-align:center; position:relative;">
+            <div style="background:#fff; border-radius:12px; padding:24px; max-width:380px; width:85%; text-align:center; position:relative;">
                 <button id="tipClose" style="position:absolute; top:12px; right:16px; background:none; border:none; font-size:20px; cursor:pointer; color:#999;">&times;</button>
                 <h3 style="font-family:'Times New Roman',serif; font-size:20px; font-weight:400; margin-bottom:8px;">Thank you!</h3>
-                <p style="font-family:'Times New Roman',serif; font-size:14px; color:#666; margin-bottom:20px;">Scan to tip via Venmo</p>
                 <img src="/static/venmo-qr.png" alt="Venmo QR code" style="width:100%; border-radius:8px;">
             </div>
         </div>
@@ -220,8 +237,15 @@
         <div class="error-msg" id="errorMessage"></div>
 
         <!-- Tip jar -->
-        <div class="section" style="text-align: center;">
-            <button class="btn" id="tipBtnFooter" style="background: #008CFF; color: #fff; max-width: 300px; margin: 0 auto; font-size: 18px;">☕ Leave a tip 🎓</button>
+        <div class="section gated" id="tipSection" style="display:none;">
+            <h2>LEAVE A TIP</h2>
+            <button class="btn" id="tipBtnFooter" style="background: #008CFF; color: #fff; font-size: 16px;">☕ Tip via Venmo 🎓</button>
+        </div>
+
+        <!-- Datasets -->
+        <div class="section gated" id="datasetsSection" style="display:none;">
+            <h2>DATASETS</h2>
+            <div id="datasetsList"></div>
         </div>
 
         <footer>commencement.stt</footer>
@@ -237,6 +261,9 @@
         function unlockApp() {
             inviteSection.style.display = 'none';
             mainSection.style.display = 'block';
+            document.getElementById('tipSection').style.display = 'block';
+            document.getElementById('datasetsSection').style.display = 'block';
+            loadDatasets();
         }
 
         if (localStorage.getItem('stt_invited') === 'true') {
@@ -479,6 +506,61 @@
             const div = document.createElement('div');
             div.textContent = str;
             return div.innerHTML;
+        }
+
+        // --- Datasets ---
+        function loadDatasets() {
+            fetch('/datasets').then(r => r.json()).then(datasets => {
+                const container = document.getElementById('datasetsList');
+                if (!datasets.length) {
+                    container.innerHTML = '<p style="color:#999; font-size:14px;">No datasets yet.</p>';
+                    return;
+                }
+                container.innerHTML = datasets.map(d => {
+                    const previewRows = d.preview.map(g =>
+                        '<tr><td class="name">' + escapeHtml(g.name) + '</td><td class="degree">' + escapeHtml(g.degree || '') + '</td></tr>'
+                    ).join('');
+                    const remaining = d.grad_count - d.preview.length;
+                    const previewId = 'preview-' + d.id;
+                    return `
+                        <div class="dataset-card">
+                            <div class="dataset-header">
+                                <div>
+                                    <div class="dataset-title">${escapeHtml(d.school)} ${d.year}</div>
+                                    <div class="dataset-meta">${d.grad_count} graduates</div>
+                                </div>
+                                <button class="btn-download" onclick="downloadDataset('${d.id}')">Download CSV</button>
+                            </div>
+                            <button class="dataset-toggle" onclick="togglePreview('${previewId}', this)">Show preview &darr;</button>
+                            <div class="dataset-preview" id="${previewId}">
+                                <table>${previewRows}</table>
+                                ${remaining > 0 ? '<div class="more">+ ' + remaining + ' more</div>' : ''}
+                            </div>
+                        </div>
+                    `;
+                }).join('');
+            });
+        }
+
+        function togglePreview(id, btn) {
+            const el = document.getElementById(id);
+            el.classList.toggle('open');
+            btn.innerHTML = el.classList.contains('open') ? 'Hide preview &uarr;' : 'Show preview &darr;';
+        }
+
+        function downloadDataset(videoId) {
+            // Show tip modal first, then download
+            document.getElementById('tipModal').style.display = 'flex';
+            // Add a one-time listener for when they close the modal
+            const modal = document.getElementById('tipModal');
+            const handler = () => {
+                window.location.href = '/datasets/' + videoId + '/csv';
+                modal.removeEventListener('click', handler);
+            };
+            // Download after a short delay (let them see the QR)
+            setTimeout(() => {
+                window.location.href = '/datasets/' + videoId + '/csv';
+            }, 3000);
         }
     </script>
 </body>
