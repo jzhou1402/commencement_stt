@@ -327,16 +327,21 @@
             localStorage.setItem('stt_job_keys', JSON.stringify(keys));
         }
 
-        // On load: try to reconnect to an in-progress job
+        // On load: try to reconnect to all in-progress jobs
         socket.on('connect', () => {
-            const savedKey = localStorage.getItem('stt_job_key');
-            if (savedKey) {
+            const keys = getJobKeys();
+            if (keys.length > 0) {
                 if (localStorage.getItem('stt_invited') === 'true') unlockApp();
-                activeKey = savedKey;
-                showProgress();
-                cancelBtn.style.display = 'block';
-                document.getElementById('statusMessage').textContent = 'Reconnecting...';
-                socket.emit('reconnect_job', { key: savedKey });
+                // Reconnect to all queued jobs so server forwards events to our new sid
+                keys.forEach(key => socket.emit('reconnect_job', { key }));
+                // Show progress for the most recent one
+                const lastKey = localStorage.getItem('stt_job_key');
+                if (lastKey) {
+                    activeKey = lastKey;
+                    showProgress();
+                    cancelBtn.style.display = 'block';
+                    document.getElementById('statusMessage').textContent = 'Reconnecting...';
+                }
             }
             refreshUserQueue();
         });
@@ -473,6 +478,16 @@
             clearJob();
             refreshUserQueue();
             loadDatasets();
+            // If there are still queued jobs, keep progress visible
+            const remainingKeys = getJobKeys();
+            if (remainingKeys.length > 0) {
+                activeKey = remainingKeys[0];
+                localStorage.setItem('stt_job_key', activeKey);
+                showProgress();
+                cancelBtn.style.display = 'block';
+                document.getElementById('statusMessage').textContent = 'Waiting for next job...';
+                socket.emit('reconnect_job', { key: activeKey });
+            }
             let msg = 'Done.';
             if (data && data.cost) {
                 msg += ' Cost: $' + data.cost.total_cost.toFixed(4);
