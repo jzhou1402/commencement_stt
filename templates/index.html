@@ -221,9 +221,7 @@
 
         <!-- Tip jar -->
         <div class="section" style="text-align: center;">
-            <h2>Tip jar</h2>
-            <p style="font-size: 15px; color: #666; margin-bottom: 16px;">If this saved you time, consider leaving a tip.</p>
-            <img src="/static/venmo-qr.png" alt="Venmo QR code" style="width: 280px; border-radius: 12px;">
+            <button class="btn" id="tipBtnFooter" style="background: #008CFF; color: #fff; max-width: 300px; margin: 0 auto;">Leave a tip</button>
         </div>
 
         <footer>commencement.stt</footer>
@@ -464,6 +462,9 @@
 
         // --- Tip modal ---
         document.getElementById('tipBtn').addEventListener('click', () => {
+            document.getElementById('tipModal').style.display = 'flex';
+        });
+        document.getElementById('tipBtnFooter').addEventListener('click', () => {
             document.getElementById('tipModal').style.display = 'flex';
         });
         document.getElementById('tipClose').addEventListener('click', () => {
