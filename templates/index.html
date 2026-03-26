@@ -327,11 +327,14 @@
         socket.on('connect', () => {
             const savedKey = localStorage.getItem('stt_job_key');
             if (savedKey) {
+                if (localStorage.getItem('stt_invited') === 'true') unlockApp();
                 activeKey = savedKey;
                 showProgress();
+                cancelBtn.style.display = 'block';
                 document.getElementById('statusMessage').textContent = 'Reconnecting...';
                 socket.emit('reconnect_job', { key: savedKey });
             }
+            refreshUserQueue();
         });
 
         // --- Start ---
