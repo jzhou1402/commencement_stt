@@ -422,6 +422,8 @@ def status():
     return jsonify({"active_key": active_key, "queued": queued})
 
 
+MAX_PER_IP = 5  # max queued videos per IP
+
 @app.route("/start", methods=["POST"])
 def start():
     data = request.get_json()
@@ -429,6 +431,7 @@ def start():
     school = data.get("school", "Unknown")
     year = data.get("year", "2025")
     sid = data.get("sid")
+    ip = request.headers.get("CF-Connecting-IP") or request.headers.get("X-Forwarded-For", "").split(",")[0].strip() or request.remote_addr
 
     if not youtube_url:
         return jsonify({"error": "No YouTube URL provided"}), 400
@@ -449,7 +452,15 @@ def start():
                 job["sids"].add(sid)
                 return jsonify({"status": "reattached", "position": list(job_queue.queue).index(job) + 1})
 
-    # Check queue capacity
+    # Check per-IP limit
+    with queue_lock:
+        ip_count = sum(1 for j in list(job_queue.queue) if j.get("ip") == ip)
+    if active_job and active_job.get("ip") == ip:
+        ip_count += 1
+    if ip_count >= MAX_PER_IP:
+        return jsonify({"error": f"You already have {ip_count} videos queued. Max {MAX_PER_IP} at a time."}), 429
+
+    # Check global queue capacity
     if job_queue.qsize() >= MAX_QUEUE_SIZE + 1:
         return jsonify({"error": "Server is busy. Please try again in a few minutes."}), 429
 
@@ -459,6 +470,7 @@ def start():
         "school": school,
         "year": year,
         "sids": {sid},
+        "ip": ip,
         "cancel": threading.Event(),
     }
     job_queue.put(job)
@@ -468,6 +480,18 @@ def start():
         socketio.emit("queue_position", {"position": position, "total": position}, to=sid)
 
     return jsonify({"status": "queued", "key": key, "position": position})
+
+
+@app.route("/queue")
+def queue_status():
+    """Return user's queued jobs."""
+    ip = request.headers.get("CF-Connecting-IP") or request.headers.get("X-Forwarded-For", "").split(",")[0].strip() or request.remote_addr
+    with queue_lock:
+        jobs = [{"key": j["key"], "url": j["url"], "school": j["school"], "year": j["year"]} for j in list(job_queue.queue) if j.get("ip") == ip]
+    active = None
+    if active_job and active_job.get("ip") == ip:
+        active = {"key": active_job["key"], "url": active_job["url"], "school": active_job["school"], "year": active_job["year"]}
+    return jsonify({"active": active, "queued": jobs, "max": MAX_PER_IP})
 
 
 @app.route("/datasets")

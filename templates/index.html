@@ -129,6 +129,12 @@
         .about p { font-size: 15px; color: #666; margin-bottom: 12px; }
         .about a { color: #1a1a1a; }
 
+        /* User queue */
+        .queue-item { display: flex; justify-content: space-between; align-items: center; padding: 8px 0; border-bottom: 1px solid #f0f0f0; font-size: 14px; }
+        .queue-item .qi-info { color: #666; }
+        .queue-item .qi-status { font-size: 12px; color: #999; font-style: italic; }
+        .queue-item .qi-status.active { color: #1a1a1a; font-style: normal; font-weight: 600; }
+
         /* Datasets */
         .dataset-card { border: 1px solid #eee; border-radius: 8px; padding: 20px; margin-bottom: 16px; }
         .dataset-toggle { background: none; border: none; font-family: 'Times New Roman', serif; font-size: 13px; color: #999; cursor: pointer; padding: 0; margin-top: 8px; }
@@ -183,6 +189,10 @@
                 </div>
             </div>
             <button class="btn" id="startBtn">Extract graduates</button>
+            <div id="userQueue" style="display:none; margin-top: 20px; border-top: 1px solid #eee; padding-top: 16px;">
+                <div style="font-size: 12px; text-transform: uppercase; letter-spacing: 1px; color: #999; margin-bottom: 8px;">Your queue</div>
+                <div id="userQueueList"></div>
+            </div>
         </div>
 
         <!-- Progress -->
@@ -320,7 +330,6 @@
             if (!url) { urlInput.focus(); return; }
 
             startBtn.disabled = true;
-            showProgress();
 
             fetch('/start', {
                 method: 'POST',
@@ -334,11 +343,15 @@
             })
                 .then(r => r.json())
                 .then(data => {
+                    startBtn.disabled = false;
                     if (data.error) { showError(data.error); return; }
                     if (data.key) saveJob(data.key, url);
+                    showProgress();
                     cancelBtn.style.display = 'block';
+                    urlInput.value = '';
+                    refreshUserQueue();
                 })
-                .catch(err => showError(err.message));
+                .catch(err => { showError(err.message); startBtn.disabled = false; });
         });
 
         urlInput.addEventListener('keydown', (e) => { if (e.key === 'Enter') startBtn.click(); });
@@ -439,6 +452,8 @@
 
         socket.on('pipeline_complete', (data) => {
             clearJob();
+            refreshUserQueue();
+            loadDatasets();
             let msg = 'Done.';
             if (data && data.cost) {
                 msg += ' Cost: $' + data.cost.total_cost.toFixed(4);
@@ -507,6 +522,35 @@
             div.textContent = str;
             return div.innerHTML;
         }
+
+        // --- User queue ---
+        function refreshUserQueue() {
+            fetch('/queue').then(r => r.json()).then(data => {
+                const container = document.getElementById('userQueueList');
+                const wrapper = document.getElementById('userQueue');
+                const items = [];
+                if (data.active) {
+                    items.push({ ...data.active, status: 'Processing...' , isActive: true });
+                }
+                data.queued.forEach((j, i) => {
+                    items.push({ ...j, status: 'Queued #' + (i + 1), isActive: false });
+                });
+                if (items.length === 0) {
+                    wrapper.style.display = 'none';
+                    return;
+                }
+                wrapper.style.display = 'block';
+                container.innerHTML = items.map(j =>
+                    `<div class="queue-item">
+                        <span class="qi-info">${escapeHtml(j.school)} ${j.year}</span>
+                        <span class="qi-status ${j.isActive ? 'active' : ''}">${j.status}</span>
+                    </div>`
+                ).join('');
+            });
+        }
+
+        // Refresh queue periodically
+        setInterval(refreshUserQueue, 5000);
 
         // --- Datasets ---
         function loadDatasets() {
