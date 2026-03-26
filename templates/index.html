@@ -527,7 +527,7 @@
                             <div class="dataset-header">
                                 <div>
                                     <div class="dataset-title">${escapeHtml(d.school)} ${d.year}</div>
-                                    <div class="dataset-meta">${d.grad_count} graduates</div>
+                                    <div class="dataset-meta">${d.grad_count} graduates &middot; <a href="https://youtube.com/watch?v=${d.id}" target="_blank" style="color:#999;">source</a></div>
                                 </div>
                                 <button class="btn-download" onclick="downloadDataset('${d.id}')">Download CSV</button>
                             </div>
