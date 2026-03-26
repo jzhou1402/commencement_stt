@@ -484,13 +484,20 @@ def start():
 
 @app.route("/queue")
 def queue_status():
-    """Return user's queued jobs."""
-    ip = request.headers.get("CF-Connecting-IP") or request.headers.get("X-Forwarded-For", "").split(",")[0].strip() or request.remote_addr
+    """Return user's queued jobs. Accepts ?keys=key1,key2 to filter."""
+    keys_param = request.args.get("keys", "")
+    user_keys = set(k.strip() for k in keys_param.split(",") if k.strip())
+
     with queue_lock:
-        jobs = [{"key": j["key"], "url": j["url"], "school": j["school"], "year": j["year"]} for j in list(job_queue.queue) if j.get("ip") == ip]
+        if user_keys:
+            jobs = [{"key": j["key"], "url": j["url"], "school": j["school"], "year": j["year"]} for j in list(job_queue.queue) if j["key"] in user_keys]
+        else:
+            jobs = [{"key": j["key"], "url": j["url"], "school": j["school"], "year": j["year"]} for j in list(job_queue.queue)]
+
     active = None
-    if active_job and active_job.get("ip") == ip:
+    if active_job and (not user_keys or active_job["key"] in user_keys):
         active = {"key": active_job["key"], "url": active_job["url"], "school": active_job["school"], "year": active_job["year"]}
+
     return jsonify({"active": active, "queued": jobs, "max": MAX_PER_IP})
 
 

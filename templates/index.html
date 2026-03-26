@@ -301,8 +301,14 @@
         let activeKey = null;
 
         // --- Persist & recover job state ---
+        function getJobKeys() {
+            try { return JSON.parse(localStorage.getItem('stt_job_keys') || '[]'); } catch(e) { return []; }
+        }
         function saveJob(key, url) {
             activeKey = key;
+            const keys = getJobKeys();
+            if (!keys.includes(key)) keys.push(key);
+            localStorage.setItem('stt_job_keys', JSON.stringify(keys));
             localStorage.setItem('stt_job_key', key);
             localStorage.setItem('stt_job_url', url);
         }
@@ -311,6 +317,10 @@
             localStorage.removeItem('stt_job_key');
             localStorage.removeItem('stt_job_url');
             cancelBtn.style.display = 'none';
+        }
+        function clearFinishedKey(key) {
+            const keys = getJobKeys().filter(k => k !== key);
+            localStorage.setItem('stt_job_keys', JSON.stringify(keys));
         }
 
         // On load: try to reconnect to an in-progress job
@@ -451,6 +461,7 @@
         });
 
         socket.on('pipeline_complete', (data) => {
+            if (activeKey) clearFinishedKey(activeKey);
             clearJob();
             refreshUserQueue();
             loadDatasets();
@@ -525,7 +536,8 @@
 
         // --- User queue ---
         function refreshUserQueue() {
-            fetch('/queue').then(r => r.json()).then(data => {
+            const keys = getJobKeys();
+            fetch('/queue?keys=' + keys.join(',')).then(r => r.json()).then(data => {
                 const container = document.getElementById('userQueueList');
                 const wrapper = document.getElementById('userQueue');
                 const items = [];
