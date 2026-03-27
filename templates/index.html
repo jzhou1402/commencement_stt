@@ -174,27 +174,13 @@
         <!-- Input (hidden until invited) -->
         <div class="section" id="mainSection" style="display:none;">
             <h2>Process a ceremony</h2>
-            <div class="mode-tabs" style="display: flex; gap: 0; margin-bottom: 20px; border-bottom: 1px solid #ddd;">
-                <button class="mode-tab active" id="tabUpload" onclick="switchMode('upload')" style="flex:1; padding: 10px; font-family: 'Times New Roman', serif; font-size: 14px; background: none; border: none; border-bottom: 2px solid #1a1a1a; cursor: pointer; color: #1a1a1a;">Upload Audio</button>
-                <button class="mode-tab" id="tabYoutube" onclick="switchMode('youtube')" style="flex:1; padding: 10px; font-family: 'Times New Roman', serif; font-size: 14px; background: none; border: none; border-bottom: 2px solid transparent; cursor: pointer; color: #999;">YouTube URL</button>
-            </div>
-
-            <!-- Upload mode -->
-            <div id="uploadMode" style="margin-bottom: 16px;">
+            <div style="margin-bottom: 16px;">
                 <div id="dropZone" style="border: 2px dashed #ccc; border-radius: 8px; padding: 32px 16px; text-align: center; cursor: pointer; transition: border-color 0.2s, background 0.2s;">
                     <div style="font-size: 15px; color: #666; margin-bottom: 4px;" id="dropLabel">Drop an audio/video file here, or click to browse</div>
                     <div style="font-size: 12px; color: #999;">MP3, WAV, M4A, FLAC, MP4, MOV, WebM, OGG</div>
                     <input type="file" id="audioFile" accept=".mp3,.wav,.m4a,.flac,.mp4,.mov,.webm,.ogg,.aac,.wma" style="display: none;">
                 </div>
                 <div id="fileInfo" style="display: none; margin-top: 8px; font-size: 14px; color: #666;"></div>
-            </div>
-
-            <!-- YouTube mode (hidden by default) -->
-            <div id="youtubeMode" style="display: none; margin-bottom: 16px;">
-                <div class="form-group">
-                    <label>YouTube URL</label>
-                    <input type="text" id="youtubeUrl" placeholder="https://www.youtube.com/watch?v=...">
-                </div>
             </div>
 
             <div class="form-row">
@@ -227,7 +213,6 @@
         <!-- Progress -->
         <div class="progress-section" id="progressSection">
             <div class="steps">
-                <div class="step-item" id="stepDownload">Download</div>
                 <div class="step-item" id="stepTranscribe">Transcribe</div>
                 <div class="step-item" id="stepMetadata">Extract</div>
             </div>
@@ -323,25 +308,12 @@
         }
 
         const socket = io();
-        const urlInput = document.getElementById('youtubeUrl');
         const startBtn = document.getElementById('startBtn');
         const cancelBtn = document.getElementById('cancelBtn');
         const audioFileInput = document.getElementById('audioFile');
         const dropZone = document.getElementById('dropZone');
         let lastGraduates = [];
         let activeKey = null;
-        let currentMode = 'upload';
-
-        // --- Mode switching ---
-        function switchMode(mode) {
-            currentMode = mode;
-            document.getElementById('uploadMode').style.display = mode === 'upload' ? 'block' : 'none';
-            document.getElementById('youtubeMode').style.display = mode === 'youtube' ? 'block' : 'none';
-            document.getElementById('tabUpload').style.borderBottomColor = mode === 'upload' ? '#1a1a1a' : 'transparent';
-            document.getElementById('tabUpload').style.color = mode === 'upload' ? '#1a1a1a' : '#999';
-            document.getElementById('tabYoutube').style.borderBottomColor = mode === 'youtube' ? '#1a1a1a' : 'transparent';
-            document.getElementById('tabYoutube').style.color = mode === 'youtube' ? '#1a1a1a' : '#999';
-        }
 
         // --- File upload drag & drop ---
         dropZone.addEventListener('click', () => audioFileInput.click());
@@ -411,44 +383,6 @@
 
         // --- Start ---
         startBtn.addEventListener('click', () => {
-            if (currentMode === 'youtube') {
-                startYoutube();
-            } else {
-                startUpload();
-            }
-        });
-
-        function startYoutube() {
-            const url = urlInput.value.trim();
-            if (!url) { urlInput.focus(); return; }
-
-            startBtn.disabled = true;
-
-            fetch('/start', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({
-                    url: url,
-                    school: document.getElementById('school').value,
-                    term: document.getElementById('term').value,
-                    year: document.getElementById('year').value,
-                    sid: socket.id,
-                }),
-            })
-                .then(r => r.json())
-                .then(data => {
-                    startBtn.disabled = false;
-                    if (data.error) { showError(data.error); return; }
-                    if (data.key) saveJob(data.key, url);
-                    showProgress();
-                    cancelBtn.style.display = 'block';
-                    urlInput.value = '';
-                    refreshUserQueue();
-                })
-                .catch(err => { showError(err.message); startBtn.disabled = false; });
-        }
-
-        function startUpload() {
             const file = audioFileInput.files[0];
             if (!file) { dropZone.style.borderColor = '#c00'; setTimeout(() => dropZone.style.borderColor = '#ccc', 1500); return; }
 
@@ -485,9 +419,6 @@
                 if (data.error) { showError(data.error); return; }
                 if (data.key) saveJob(data.key, 'upload://' + file.name);
                 showProgress();
-                // Skip download step for uploads
-                document.getElementById('stepDownload').className = 'step-item done';
-                document.getElementById('stepTranscribe').className = 'step-item active';
                 cancelBtn.style.display = 'block';
                 // Reset file input
                 audioFileInput.value = '';
@@ -503,9 +434,7 @@
             };
 
             xhr.send(formData);
-        }
-
-        urlInput.addEventListener('keydown', (e) => { if (e.key === 'Enter') startBtn.click(); });
+        });
 
         // --- Cancel ---
         cancelBtn.addEventListener('click', () => {
@@ -528,20 +457,17 @@
             document.getElementById('errorMessage').classList.remove('active');
             document.getElementById('progressBar').style.width = '0%';
             document.getElementById('latestText').textContent = '';
-            ['stepDownload', 'stepTranscribe', 'stepMetadata'].forEach(id => {
+            ['stepTranscribe', 'stepMetadata'].forEach(id => {
                 document.getElementById(id).className = 'step-item';
             });
-            document.getElementById('stepDownload').classList.add('active');
+            document.getElementById('stepTranscribe').classList.add('active');
             cancelBtn.style.display = 'block';
         }
 
         socket.on('status', (data) => {
             document.getElementById('queueMessage').style.display = 'none';
             document.getElementById('statusMessage').textContent = data.message;
-            if (data.step === 'download') {
-                document.getElementById('stepDownload').classList.add('active');
-            } else if (data.step === 'transcribe') {
-                document.getElementById('stepDownload').className = 'step-item done';
+            if (data.step === 'transcribe') {
                 document.getElementById('stepTranscribe').className = 'step-item active';
             } else if (data.step === 'metadata') {
                 document.getElementById('stepTranscribe').className = 'step-item done';
@@ -549,10 +475,6 @@
                 document.getElementById('progressBar').style.width = '0%';
                 document.getElementById('latestText').textContent = '';
             }
-        });
-
-        socket.on('download_progress', (data) => {
-            document.getElementById('statusMessage').textContent = data.message;
         });
 
         socket.on('transcription_progress', (data) => {
@@ -570,7 +492,6 @@
             if (data.cached) msg += ' (cached)';
             document.getElementById('statusMessage').textContent = msg;
             document.getElementById('latestText').textContent = '';
-            document.getElementById('stepDownload').className = 'step-item done';
             document.getElementById('stepTranscribe').className = 'step-item done';
         });
 
