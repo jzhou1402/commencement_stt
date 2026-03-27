@@ -11,7 +11,7 @@ import threading
 from queue import Queue
 from pathlib import Path
 
-from flask import Flask, render_template, request, jsonify
+from flask import Flask, render_template, request, jsonify, Response
 from flask_socketio import SocketIO
 from db import save_video, save_graduates, get_cached_transcript, save_transcript, get_graduates_by_video
 from costs import CostTracker
@@ -197,6 +197,9 @@ def download_youtube_audio(url, job):
         "progress_hooks": [progress_hook],
         "quiet": True,
         "no_warnings": True,
+        "noplaylist": True,
+        "source_address": "0.0.0.0",
+        "cookiefile": str(Path(__file__).parent / "cookies.txt"),
     }
 
     with yt_dlp.YoutubeDL(ydl_opts) as ydl:
@@ -359,7 +362,14 @@ def run_pipeline(job):
         _emit("transcription_complete", {"percent": 100, "total_segments": len(transcript_data["segments"]), "text_length": len(transcript_data["full_text"]), "cached": True}, job)
     else:
         _check_cancel(job)
-        audio_path, title = download_youtube_audio(url, job)
+
+        # Get audio: either from upload or YouTube download
+        if "audio_path" in job:
+            audio_path = job["audio_path"]
+            title = job.get("filename", key)
+            _emit("status", {"step": "transcribe", "message": f"Processing uploaded file: {title}"}, job)
+        else:
+            audio_path, title = download_youtube_audio(url, job)
 
         _check_cancel(job)
         transcript_data = transcribe_audio(audio_path, job, cost_tracker=cost)
@@ -424,6 +434,49 @@ def status():
 
 
 MAX_PER_IP = 5  # max queued videos per IP
+ALLOWED_EXTENSIONS = {".mp3", ".wav", ".m4a", ".flac", ".mp4", ".mov", ".webm", ".ogg", ".aac", ".wma"}
+
+
+def _get_ip():
+    return request.headers.get("CF-Connecting-IP") or request.headers.get("X-Forwarded-For", "").split(",")[0].strip() or request.remote_addr
+
+
+def _check_queue_limits(ip, key, sid):
+    """Check reattach, per-IP, and global queue limits. Returns (job_or_none, error_response_or_none)."""
+    # If already active, reattach
+    if active_job and active_job["key"] == key:
+        active_job["sids"].add(sid)
+        return None, jsonify({"status": "reattached", "position": 0})
+
+    # If already queued, reattach
+    with queue_lock:
+        for job in list(job_queue.queue):
+            if job["key"] == key:
+                job["sids"].add(sid)
+                return None, jsonify({"status": "reattached", "position": list(job_queue.queue).index(job) + 1})
+
+    # Check per-IP limit
+    with queue_lock:
+        ip_count = sum(1 for j in list(job_queue.queue) if j.get("ip") == ip)
+    if active_job and active_job.get("ip") == ip:
+        ip_count += 1
+    if ip_count >= MAX_PER_IP:
+        return None, (jsonify({"error": f"You already have {ip_count} videos queued. Max {MAX_PER_IP} at a time."}), 429)
+
+    # Check global queue capacity
+    if job_queue.qsize() >= MAX_QUEUE_SIZE + 1:
+        return None, (jsonify({"error": "Server is busy. Please try again in a few minutes."}), 429)
+
+    return True, None
+
+
+def _enqueue_job(job, sid):
+    job_queue.put(job)
+    position = job_queue.qsize()
+    if position > 1 or active_job is not None:
+        socketio.emit("queue_position", {"position": position, "total": position}, to=sid)
+    return jsonify({"status": "queued", "key": job["key"], "position": position})
+
 
 @app.route("/start", methods=["POST"])
 def start():
@@ -433,7 +486,7 @@ def start():
     term = data.get("term", "")
     year = data.get("year", "2025")
     sid = data.get("sid")
-    ip = request.headers.get("CF-Connecting-IP") or request.headers.get("X-Forwarded-For", "").split(",")[0].strip() or request.remote_addr
+    ip = _get_ip()
 
     if not youtube_url:
         return jsonify({"error": "No YouTube URL provided"}), 400
@@ -442,29 +495,9 @@ def start():
 
     key = url_key(youtube_url)
 
-    # If this video is already active, reattach
-    if active_job and active_job["key"] == key:
-        active_job["sids"].add(sid)
-        return jsonify({"status": "reattached", "position": 0})
-
-    # If already queued, reattach
-    with queue_lock:
-        for job in list(job_queue.queue):
-            if job["key"] == key:
-                job["sids"].add(sid)
-                return jsonify({"status": "reattached", "position": list(job_queue.queue).index(job) + 1})
-
-    # Check per-IP limit
-    with queue_lock:
-        ip_count = sum(1 for j in list(job_queue.queue) if j.get("ip") == ip)
-    if active_job and active_job.get("ip") == ip:
-        ip_count += 1
-    if ip_count >= MAX_PER_IP:
-        return jsonify({"error": f"You already have {ip_count} videos queued. Max {MAX_PER_IP} at a time."}), 429
-
-    # Check global queue capacity
-    if job_queue.qsize() >= MAX_QUEUE_SIZE + 1:
-        return jsonify({"error": "Server is busy. Please try again in a few minutes."}), 429
+    ok, resp = _check_queue_limits(ip, key, sid)
+    if resp:
+        return resp
 
     job = {
         "key": key,
@@ -476,13 +509,53 @@ def start():
         "ip": ip,
         "cancel": threading.Event(),
     }
-    job_queue.put(job)
-    position = job_queue.qsize()
+    return _enqueue_job(job, sid)
 
-    if position > 1 or active_job is not None:
-        socketio.emit("queue_position", {"position": position, "total": position}, to=sid)
 
-    return jsonify({"status": "queued", "key": key, "position": position})
+@app.route("/upload", methods=["POST"])
+def upload():
+    if "file" not in request.files:
+        return jsonify({"error": "No file provided"}), 400
+
+    file = request.files["file"]
+    if not file.filename:
+        return jsonify({"error": "No file selected"}), 400
+
+    ext = Path(file.filename).suffix.lower()
+    if ext not in ALLOWED_EXTENSIONS:
+        return jsonify({"error": f"Unsupported file type: {ext}. Allowed: {', '.join(sorted(ALLOWED_EXTENSIONS))}"}), 400
+
+    school = request.form.get("school", "Unknown")
+    term = request.form.get("term", "")
+    year = request.form.get("year", "2025")
+    sid = request.form.get("sid")
+    ip = _get_ip()
+
+    # Read file and hash for dedup key
+    file_data = file.read()
+    key = hashlib.sha256(file_data).hexdigest()[:16]
+
+    ok, resp = _check_queue_limits(ip, key, sid)
+    if resp:
+        return resp
+
+    # Save file to downloads/
+    audio_path = DOWNLOADS_DIR / f"{key}{ext}"
+    audio_path.write_bytes(file_data)
+
+    job = {
+        "key": key,
+        "audio_path": str(audio_path),
+        "filename": file.filename,
+        "url": f"upload://{file.filename}",
+        "school": school,
+        "term": term,
+        "year": year,
+        "sids": {sid},
+        "ip": ip,
+        "cancel": threading.Event(),
+    }
+    return _enqueue_job(job, sid)
 
 
 @app.route("/queue")
@@ -546,7 +619,6 @@ def dataset_csv(video_id):
         degree = '"' + (g.get("degree") or "").replace('"', '""') + '"'
         output.write(f"{name},{degree}\n")
 
-    from flask import Response
     return Response(
         output.getvalue(),
         mimetype="text/csv",
