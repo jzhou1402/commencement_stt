@@ -174,13 +174,9 @@
         <!-- Input (hidden until invited) -->
         <div class="section" id="mainSection" style="display:none;">
             <h2>Process a ceremony</h2>
-            <div style="margin-bottom: 16px;">
-                <div id="dropZone" style="border: 2px dashed #ccc; border-radius: 8px; padding: 32px 16px; text-align: center; cursor: pointer; transition: border-color 0.2s, background 0.2s;">
-                    <div style="font-size: 15px; color: #666; margin-bottom: 4px;" id="dropLabel">Drop an audio/video file here, or click to browse</div>
-                    <div style="font-size: 12px; color: #999;">MP3, WAV, M4A, FLAC, MP4, MOV, WebM, OGG</div>
-                    <input type="file" id="audioFile" accept=".mp3,.wav,.m4a,.flac,.mp4,.mov,.webm,.ogg,.aac,.wma" style="display: none;">
-                </div>
-                <div id="fileInfo" style="display: none; margin-top: 8px; font-size: 14px; color: #666;"></div>
+            <div class="form-group" style="margin-bottom: 16px;">
+                <label>YouTube URL</label>
+                <input type="text" id="youtubeUrl" placeholder="https://www.youtube.com/watch?v=...">
             </div>
 
             <div class="form-row">
@@ -198,12 +194,6 @@
                 </div>
             </div>
             <button class="btn" id="startBtn">Extract graduates</button>
-            <div id="uploadProgress" style="display: none; margin-top: 12px;">
-                <div class="progress-bar-wrap">
-                    <div class="progress-bar-fill" id="uploadProgressBar"></div>
-                </div>
-                <div style="font-size: 13px; color: #666;" id="uploadProgressText">Uploading...</div>
-            </div>
             <div id="userQueue" style="display:none; margin-top: 20px; border-top: 1px solid #eee; padding-top: 16px;">
                 <div style="font-size: 12px; text-transform: uppercase; letter-spacing: 1px; color: #999; margin-bottom: 8px;">Your queue</div>
                 <div id="userQueueList"></div>
@@ -213,6 +203,7 @@
         <!-- Progress -->
         <div class="progress-section" id="progressSection">
             <div class="steps">
+                <div class="step-item" id="stepDownload">Download</div>
                 <div class="step-item" id="stepTranscribe">Transcribe</div>
                 <div class="step-item" id="stepMetadata">Extract</div>
             </div>
@@ -308,36 +299,11 @@
         }
 
         const socket = io();
+        const urlInput = document.getElementById('youtubeUrl');
         const startBtn = document.getElementById('startBtn');
         const cancelBtn = document.getElementById('cancelBtn');
-        const audioFileInput = document.getElementById('audioFile');
-        const dropZone = document.getElementById('dropZone');
         let lastGraduates = [];
         let activeKey = null;
-
-        // --- File upload drag & drop ---
-        dropZone.addEventListener('click', () => audioFileInput.click());
-        dropZone.addEventListener('dragover', (e) => { e.preventDefault(); dropZone.style.borderColor = '#1a1a1a'; dropZone.style.background = '#f5f5f3'; });
-        dropZone.addEventListener('dragleave', () => { dropZone.style.borderColor = '#ccc'; dropZone.style.background = 'transparent'; });
-        dropZone.addEventListener('drop', (e) => {
-            e.preventDefault();
-            dropZone.style.borderColor = '#ccc';
-            dropZone.style.background = 'transparent';
-            if (e.dataTransfer.files.length > 0) {
-                audioFileInput.files = e.dataTransfer.files;
-                showFileInfo(e.dataTransfer.files[0]);
-            }
-        });
-        audioFileInput.addEventListener('change', () => {
-            if (audioFileInput.files.length > 0) showFileInfo(audioFileInput.files[0]);
-        });
-
-        function showFileInfo(file) {
-            const sizeMB = (file.size / 1024 / 1024).toFixed(1);
-            document.getElementById('fileInfo').style.display = 'block';
-            document.getElementById('fileInfo').textContent = file.name + ' (' + sizeMB + ' MB)';
-            document.getElementById('dropLabel').textContent = file.name;
-        }
 
         // --- Persist & recover job state ---
         function getJobKeys() {
@@ -382,86 +348,37 @@
         });
 
         // --- Start ---
-        const CHUNK_SIZE = 5 * 1024 * 1024; // 5MB chunks
-
         startBtn.addEventListener('click', () => {
-            const file = audioFileInput.files[0];
-            if (!file) { dropZone.style.borderColor = '#c00'; setTimeout(() => dropZone.style.borderColor = '#ccc', 1500); return; }
+            const url = urlInput.value.trim();
+            if (!url) { urlInput.focus(); return; }
 
             startBtn.disabled = true;
-            const uploadProg = document.getElementById('uploadProgress');
-            const uploadBar = document.getElementById('uploadProgressBar');
-            const uploadText = document.getElementById('uploadProgressText');
-            uploadProg.style.display = 'block';
-            uploadBar.style.width = '0%';
-            uploadText.textContent = 'Uploading...';
 
-            const uploadId = Date.now().toString(36) + Math.random().toString(36).slice(2, 8);
-            const totalChunks = Math.ceil(file.size / CHUNK_SIZE);
-
-            uploadChunked(file, uploadId, totalChunks, uploadBar, uploadText, uploadProg);
+            fetch('/start', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    url: url,
+                    school: document.getElementById('school').value,
+                    term: document.getElementById('term').value,
+                    year: document.getElementById('year').value,
+                    sid: socket.id,
+                }),
+            })
+                .then(r => r.json())
+                .then(data => {
+                    startBtn.disabled = false;
+                    if (data.error) { showError(data.error); return; }
+                    if (data.key) saveJob(data.key, url);
+                    showProgress();
+                    cancelBtn.style.display = 'block';
+                    urlInput.value = '';
+                    refreshUserQueue();
+                })
+                .catch(err => { showError(err.message); startBtn.disabled = false; });
         });
 
-        async function uploadChunked(file, uploadId, totalChunks, uploadBar, uploadText, uploadProg) {
-            try {
-                for (let i = 0; i < totalChunks; i++) {
-                    const start = i * CHUNK_SIZE;
-                    const end = Math.min(start + CHUNK_SIZE, file.size);
-                    const chunk = file.slice(start, end);
-
-                    const formData = new FormData();
-                    formData.append('chunk', chunk, 'chunk');
-                    formData.append('upload_id', uploadId);
-                    formData.append('chunk_index', i);
-                    formData.append('total_chunks', totalChunks);
-                    formData.append('filename', file.name);
-
-                    const resp = await fetch('/upload-chunk', { method: 'POST', body: formData });
-                    if (!resp.ok) { throw new Error('Upload failed (chunk ' + i + '): server returned ' + resp.status); }
-                    const result = await resp.json();
-                    if (result.error) { throw new Error(result.error); }
-
-                    const pct = Math.round(((i + 1) / totalChunks) * 100);
-                    uploadBar.style.width = pct + '%';
-                    uploadText.textContent = 'Uploading... ' + pct + '%';
-                }
-
-                // All chunks uploaded — assemble and queue
-                uploadText.textContent = 'Processing...';
-                const resp = await fetch('/upload-complete', {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({
-                        upload_id: uploadId,
-                        filename: file.name,
-                        total_chunks: totalChunks,
-                        school: document.getElementById('school').value,
-                        term: document.getElementById('term').value,
-                        year: document.getElementById('year').value,
-                        sid: socket.id,
-                    }),
-                });
-                if (!resp.ok) { throw new Error('Server error: ' + resp.status); }
-                const data = await resp.json();
-
-                uploadProg.style.display = 'none';
-                startBtn.disabled = false;
-
-                if (data.error) { showError(data.error); return; }
-                if (data.key) saveJob(data.key, 'upload://' + file.name);
-                showProgress();
-                cancelBtn.style.display = 'block';
-                // Reset file input
-                audioFileInput.value = '';
-                document.getElementById('fileInfo').style.display = 'none';
-                document.getElementById('dropLabel').textContent = 'Drop an audio/video file here, or click to browse';
-                refreshUserQueue();
-            } catch (err) {
-                uploadProg.style.display = 'none';
-                startBtn.disabled = false;
-                showError(err.message || 'Upload failed. Please try again.');
-            }
-        }
+        urlInput.addEventListener('keydown', (e) => { if (e.key === 'Enter') startBtn.click(); });
 
         // --- Cancel ---
         cancelBtn.addEventListener('click', () => {
@@ -484,17 +401,24 @@
             document.getElementById('errorMessage').classList.remove('active');
             document.getElementById('progressBar').style.width = '0%';
             document.getElementById('latestText').textContent = '';
-            ['stepTranscribe', 'stepMetadata'].forEach(id => {
+            ['stepDownload', 'stepTranscribe', 'stepMetadata'].forEach(id => {
                 document.getElementById(id).className = 'step-item';
             });
-            document.getElementById('stepTranscribe').classList.add('active');
+            document.getElementById('stepDownload').classList.add('active');
             cancelBtn.style.display = 'block';
         }
+
+        socket.on('download_progress', (data) => {
+            document.getElementById('statusMessage').textContent = data.message;
+        });
 
         socket.on('status', (data) => {
             document.getElementById('queueMessage').style.display = 'none';
             document.getElementById('statusMessage').textContent = data.message;
-            if (data.step === 'transcribe') {
+            if (data.step === 'download') {
+                document.getElementById('stepDownload').classList.add('active');
+            } else if (data.step === 'transcribe') {
+                document.getElementById('stepDownload').className = 'step-item done';
                 document.getElementById('stepTranscribe').className = 'step-item active';
             } else if (data.step === 'metadata') {
                 document.getElementById('stepTranscribe').className = 'step-item done';
@@ -519,6 +443,7 @@
             if (data.cached) msg += ' (cached)';
             document.getElementById('statusMessage').textContent = msg;
             document.getElementById('latestText').textContent = '';
+            document.getElementById('stepDownload').className = 'step-item done';
             document.getElementById('stepTranscribe').className = 'step-item done';
         });
 

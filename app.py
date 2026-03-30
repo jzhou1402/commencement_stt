@@ -366,13 +366,7 @@ def run_pipeline(job):
     else:
         _check_cancel(job)
 
-        # Get audio: either from upload or YouTube download
-        if "audio_path" in job:
-            audio_path = job["audio_path"]
-            title = job.get("filename", key)
-            _emit("status", {"step": "transcribe", "message": f"Processing uploaded file: {title}"}, job)
-        else:
-            audio_path, title = download_youtube_audio(url, job)
+        audio_path, title = download_youtube_audio(url, job)
 
         _check_cancel(job)
         transcript_data = transcribe_audio(audio_path, job, cost_tracker=cost)
@@ -437,10 +431,6 @@ def status():
 
 
 MAX_PER_IP = 5  # max queued videos per IP
-ALLOWED_EXTENSIONS = {".mp3", ".wav", ".m4a", ".flac", ".mp4", ".mov", ".webm", ".ogg", ".aac", ".wma"}
-UPLOADS_DIR = Path("uploads")
-UPLOADS_DIR.mkdir(exist_ok=True)
-CHUNK_SIZE = 5 * 1024 * 1024  # 5MB chunks
 
 
 def _get_ip():
@@ -508,94 +498,6 @@ def start():
     job = {
         "key": key,
         "url": youtube_url,
-        "school": school,
-        "term": term,
-        "year": year,
-        "sids": {sid},
-        "ip": ip,
-        "cancel": threading.Event(),
-    }
-    return _enqueue_job(job, sid)
-
-
-@app.route("/upload-chunk", methods=["POST"])
-def upload_chunk():
-    """Receive a single chunk of a file upload."""
-    if "chunk" not in request.files:
-        return jsonify({"error": "No chunk provided"}), 400
-
-    chunk = request.files["chunk"]
-    upload_id = request.form.get("upload_id", "")
-    chunk_index = int(request.form.get("chunk_index", 0))
-    total_chunks = int(request.form.get("total_chunks", 1))
-    filename = request.form.get("filename", "")
-
-    if not upload_id:
-        return jsonify({"error": "No upload_id provided"}), 400
-
-    # Validate extension on first chunk
-    if chunk_index == 0:
-        ext = Path(filename).suffix.lower()
-        if ext not in ALLOWED_EXTENSIONS:
-            return jsonify({"error": f"Unsupported file type: {ext}. Allowed: {', '.join(sorted(ALLOWED_EXTENSIONS))}"}), 400
-
-    # Save chunk to uploads dir
-    chunk_path = UPLOADS_DIR / f"{upload_id}_chunk{chunk_index:04d}"
-    chunk.save(str(chunk_path))
-
-    return jsonify({"status": "ok", "chunk_index": chunk_index, "total_chunks": total_chunks})
-
-
-@app.route("/upload-complete", methods=["POST"])
-def upload_complete():
-    """Assemble chunks and queue the job."""
-    data = request.get_json()
-    upload_id = data.get("upload_id", "")
-    filename = data.get("filename", "")
-    total_chunks = int(data.get("total_chunks", 1))
-    school = data.get("school", "Unknown")
-    term = data.get("term", "")
-    year = data.get("year", "2025")
-    sid = data.get("sid")
-    ip = _get_ip()
-
-    ext = Path(filename).suffix.lower()
-    if ext not in ALLOWED_EXTENSIONS:
-        return jsonify({"error": f"Unsupported file type: {ext}"}), 400
-
-    # Assemble chunks into final file
-    hasher = hashlib.sha256()
-    temp_path = UPLOADS_DIR / f"{upload_id}_assembled{ext}"
-    try:
-        with open(temp_path, "wb") as out:
-            for i in range(total_chunks):
-                chunk_path = UPLOADS_DIR / f"{upload_id}_chunk{i:04d}"
-                if not chunk_path.exists():
-                    return jsonify({"error": f"Missing chunk {i}"}), 400
-                chunk_data = chunk_path.read_bytes()
-                hasher.update(chunk_data)
-                out.write(chunk_data)
-                chunk_path.unlink()
-    except Exception as e:
-        return jsonify({"error": f"Assembly failed: {e}"}), 500
-
-    key = hasher.hexdigest()[:16]
-
-    ok, resp = _check_queue_limits(ip, key, sid)
-    if resp:
-        # Clean up temp file
-        temp_path.unlink(missing_ok=True)
-        return resp
-
-    # Move to downloads dir with hash-based name
-    audio_path = DOWNLOADS_DIR / f"{key}{ext}"
-    temp_path.rename(audio_path)
-
-    job = {
-        "key": key,
-        "audio_path": str(audio_path),
-        "filename": filename,
-        "url": f"upload://{filename}",
         "school": school,
         "term": term,
         "year": year,
