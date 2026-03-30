@@ -417,6 +417,7 @@
                     formData.append('filename', file.name);
 
                     const resp = await fetch('/upload-chunk', { method: 'POST', body: formData });
+                    if (!resp.ok) { throw new Error('Upload failed (chunk ' + i + '): server returned ' + resp.status); }
                     const result = await resp.json();
                     if (result.error) { throw new Error(result.error); }
 
@@ -440,6 +441,7 @@
                         sid: socket.id,
                     }),
                 });
+                if (!resp.ok) { throw new Error('Server error: ' + resp.status); }
                 const data = await resp.json();
 
                 uploadProg.style.display = 'none';
