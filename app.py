@@ -10,6 +10,9 @@ import re
 import threading
 from queue import Queue
 from pathlib import Path
+from dotenv import load_dotenv
+
+load_dotenv(".env.local")
 
 from flask import Flask, render_template, request, jsonify, Response
 from flask_socketio import SocketIO

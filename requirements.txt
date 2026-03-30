@@ -16,5 +16,8 @@ yt-dlp>=2024.0.0
 # Database
 psycopg2-binary>=2.9.0
 
+# Environment
+python-dotenv>=1.0.0
+
 # Production server
 gunicorn>=21.0.0

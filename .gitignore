@@ -15,6 +15,7 @@ models/
 
 # API keys
 .env
+.env.local
 *.key
 
 # Downloads, cache, and database
