@@ -382,6 +382,8 @@
         });
 
         // --- Start ---
+        const CHUNK_SIZE = 5 * 1024 * 1024; // 5MB chunks
+
         startBtn.addEventListener('click', () => {
             const file = audioFileInput.files[0];
             if (!file) { dropZone.style.borderColor = '#c00'; setTimeout(() => dropZone.style.borderColor = '#ccc', 1500); return; }
@@ -394,28 +396,55 @@
             uploadBar.style.width = '0%';
             uploadText.textContent = 'Uploading...';
 
-            const formData = new FormData();
-            formData.append('file', file);
-            formData.append('school', document.getElementById('school').value);
-            formData.append('term', document.getElementById('term').value);
-            formData.append('year', document.getElementById('year').value);
-            formData.append('sid', socket.id);
+            const uploadId = Date.now().toString(36) + Math.random().toString(36).slice(2, 8);
+            const totalChunks = Math.ceil(file.size / CHUNK_SIZE);
 
-            const xhr = new XMLHttpRequest();
-            xhr.open('POST', '/upload');
+            uploadChunked(file, uploadId, totalChunks, uploadBar, uploadText, uploadProg);
+        });
 
-            xhr.upload.addEventListener('progress', (e) => {
-                if (e.lengthComputable) {
-                    const pct = Math.round((e.loaded / e.total) * 100);
+        async function uploadChunked(file, uploadId, totalChunks, uploadBar, uploadText, uploadProg) {
+            try {
+                for (let i = 0; i < totalChunks; i++) {
+                    const start = i * CHUNK_SIZE;
+                    const end = Math.min(start + CHUNK_SIZE, file.size);
+                    const chunk = file.slice(start, end);
+
+                    const formData = new FormData();
+                    formData.append('chunk', chunk, 'chunk');
+                    formData.append('upload_id', uploadId);
+                    formData.append('chunk_index', i);
+                    formData.append('total_chunks', totalChunks);
+                    formData.append('filename', file.name);
+
+                    const resp = await fetch('/upload-chunk', { method: 'POST', body: formData });
+                    const result = await resp.json();
+                    if (result.error) { throw new Error(result.error); }
+
+                    const pct = Math.round(((i + 1) / totalChunks) * 100);
                     uploadBar.style.width = pct + '%';
                     uploadText.textContent = 'Uploading... ' + pct + '%';
                 }
-            });
 
-            xhr.onload = () => {
+                // All chunks uploaded — assemble and queue
+                uploadText.textContent = 'Processing...';
+                const resp = await fetch('/upload-complete', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        upload_id: uploadId,
+                        filename: file.name,
+                        total_chunks: totalChunks,
+                        school: document.getElementById('school').value,
+                        term: document.getElementById('term').value,
+                        year: document.getElementById('year').value,
+                        sid: socket.id,
+                    }),
+                });
+                const data = await resp.json();
+
                 uploadProg.style.display = 'none';
                 startBtn.disabled = false;
-                const data = JSON.parse(xhr.responseText);
+
                 if (data.error) { showError(data.error); return; }
                 if (data.key) saveJob(data.key, 'upload://' + file.name);
                 showProgress();
@@ -425,16 +454,12 @@
                 document.getElementById('fileInfo').style.display = 'none';
                 document.getElementById('dropLabel').textContent = 'Drop an audio/video file here, or click to browse';
                 refreshUserQueue();
-            };
-
-            xhr.onerror = () => {
+            } catch (err) {
                 uploadProg.style.display = 'none';
                 startBtn.disabled = false;
-                showError('Upload failed. Please try again.');
-            };
-
-            xhr.send(formData);
-        });
+                showError(err.message || 'Upload failed. Please try again.');
+            }
+        }
 
         // --- Cancel ---
         cancelBtn.addEventListener('click', () => {
