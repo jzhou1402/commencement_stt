@@ -15,25 +15,38 @@
             line-height: 1.6;
         }
 
-        .container { max-width: 680px; margin: 0 auto; padding: 60px 24px; }
+        .container { max-width: 720px; margin: 0 auto; padding: 60px 24px; }
 
-        /* Header */
         h1 { font-size: 32px; font-weight: 400; letter-spacing: -0.5px; margin-bottom: 4px; }
-        .tagline { color: #666; font-size: 18px; font-style: italic; margin-bottom: 48px; }
+        .tagline { color: #666; font-size: 18px; font-style: italic; margin-bottom: 32px; }
 
-        /* Sections */
-        .section {
-            border-top: 1px solid #ddd;
-            padding: 32px 0;
-        }
-
+        .section { border-top: 1px solid #ddd; padding: 32px 0; }
         h2 { font-size: 14px; font-weight: 400; text-transform: uppercase; letter-spacing: 1.5px; color: #999; margin-bottom: 20px; }
+
+        /* Tabs */
+        .tabs { display: flex; gap: 0; border-bottom: 2px solid #ddd; margin-bottom: 32px; }
+        .tab {
+            padding: 12px 24px;
+            font-family: 'Times New Roman', Times, serif;
+            font-size: 16px;
+            background: none;
+            border: none;
+            border-bottom: 2px solid transparent;
+            margin-bottom: -2px;
+            cursor: pointer;
+            color: #999;
+            transition: color 0.2s, border-color 0.2s;
+        }
+        .tab:hover { color: #666; }
+        .tab.active { color: #1a1a1a; border-bottom-color: #1a1a1a; }
+        .tab-content { display: none; }
+        .tab-content.active { display: block; }
 
         /* Form */
         .form-row { display: flex; gap: 12px; margin-bottom: 16px; }
         .form-group { flex: 1; }
         .form-group label { display: block; font-size: 14px; color: #666; margin-bottom: 4px; }
-        input {
+        input, select {
             width: 100%;
             padding: 10px 12px;
             font-family: 'Times New Roman', Times, serif;
@@ -44,7 +57,7 @@
             color: #1a1a1a;
             outline: none;
         }
-        input:focus { border-color: #1a1a1a; }
+        input:focus, select:focus { border-color: #1a1a1a; }
         input::placeholder { color: #bbb; }
 
         .btn {
@@ -65,89 +78,109 @@
         /* Progress */
         .progress-section { display: none; padding: 24px 0; }
         .progress-section.active { display: block; }
-
         .steps { display: flex; gap: 24px; margin-bottom: 20px; font-size: 14px; }
         .step-item { color: #ccc; }
         .step-item.active { color: #1a1a1a; font-style: italic; }
         .step-item.done { color: #666; text-decoration: line-through; }
-
-        .progress-bar-wrap {
-            background: #eee;
-            border-radius: 2px;
-            height: 6px;
-            margin-bottom: 12px;
-            overflow: hidden;
-        }
-        .progress-bar-fill {
-            height: 100%;
-            background: #1a1a1a;
-            width: 0%;
-            transition: width 0.3s ease;
-        }
-
+        .progress-bar-wrap { background: #eee; border-radius: 2px; height: 6px; margin-bottom: 12px; overflow: hidden; }
+        .progress-bar-fill { height: 100%; background: #1a1a1a; width: 0%; transition: width 0.3s ease; }
         .status { font-size: 14px; color: #666; margin-bottom: 4px; }
         .latest { font-size: 14px; color: #999; font-style: italic; }
 
         /* Results */
         .results-section { display: none; }
         .results-section.active { display: block; }
-
         .results-meta { font-size: 14px; color: #666; margin-bottom: 16px; }
         .results-meta span { color: #1a1a1a; font-weight: 600; }
-
         table { width: 100%; border-collapse: collapse; font-size: 15px; }
-        th {
-            text-align: left;
-            padding: 8px 0;
-            border-bottom: 2px solid #1a1a1a;
-            font-weight: 400;
-            font-size: 12px;
-            text-transform: uppercase;
-            letter-spacing: 1px;
-            color: #999;
-        }
-        td {
-            padding: 8px 0;
-            border-bottom: 1px solid #eee;
-        }
+        th { text-align: left; padding: 8px 0; border-bottom: 2px solid #1a1a1a; font-weight: 400; font-size: 12px; text-transform: uppercase; letter-spacing: 1px; color: #999; }
+        td { padding: 8px 0; border-bottom: 1px solid #eee; }
         tr:hover td { background: #f5f5f3; }
         .degree-cell { font-size: 13px; color: #666; }
         .table-wrap { max-height: 600px; overflow-y: auto; }
 
-        .error-msg {
-            display: none;
-            padding: 12px 16px;
-            border-left: 3px solid #c00;
-            background: #fff5f5;
-            color: #900;
-            font-size: 14px;
-            margin-top: 16px;
-        }
+        .error-msg { display: none; padding: 12px 16px; border-left: 3px solid #c00; background: #fff5f5; color: #900; font-size: 14px; margin-top: 16px; }
         .error-msg.active { display: block; }
 
-        /* About */
-        .about p { font-size: 15px; color: #666; margin-bottom: 12px; }
-        .about a { color: #1a1a1a; }
-
-        /* User queue */
+        /* Queue */
         .queue-item { display: flex; justify-content: space-between; align-items: center; padding: 8px 0; border-bottom: 1px solid #f0f0f0; font-size: 14px; }
         .queue-item .qi-info { color: #666; }
         .queue-item .qi-status { font-size: 12px; color: #999; font-style: italic; }
         .queue-item .qi-status.active { color: #1a1a1a; font-style: normal; font-weight: 600; }
 
-        /* Datasets */
+        /* Heatmap */
+        .heatmap-container {
+            position: relative;
+            margin-bottom: 16px;
+            border: 1px solid #eee;
+            border-radius: 8px;
+            overflow: hidden;
+        }
+        .heatmap-viewport {
+            overflow: hidden;
+        }
+        .heatmap-viewport.scrollable {
+            overflow: scroll;
+            max-height: 450px;
+            scrollbar-width: none;
+        }
+        .heatmap-viewport.scrollable::-webkit-scrollbar { display: none; }
+        .heatmap-inner {
+            min-width: max-content;
+        }
+        .heatmap { border-collapse: collapse; font-size: 13px; }
+        .heatmap th { padding: 6px 8px; font-size: 11px; text-transform: uppercase; letter-spacing: 0.5px; color: #999; font-weight: 400; border-bottom: 1px solid #ddd; white-space: nowrap; cursor: pointer; transition: font-size 0.3s ease, padding 0.3s ease; }
+        .heatmap th:first-child { cursor: default; }
+        .heatmap th:hover:not(:first-child) { color: #1a1a1a; }
+        .heatmap th.selected { color: #1a1a1a; font-weight: 600; border-bottom: 2px solid #1a1a1a; }
+        .heatmap td { padding: 0; text-align: center; }
+        .heatmap .school-name { text-align: left; padding: 4px 8px; font-size: 13px; white-space: nowrap; color: #333; cursor: pointer; transition: font-size 0.3s ease, padding 0.3s ease; }
+        .heatmap .school-name:hover { color: #000; text-decoration: underline; }
+        .heatmap .school-name.selected { font-weight: 600; color: #000; }
+        .hm-cell {
+            width: 36px; height: 24px;
+            cursor: pointer;
+            border-radius: 2px;
+            margin: 1px;
+            transition: width 0.3s ease, height 0.3s ease;
+        }
+        .hm-cell.has-data:hover { outline: 2px solid #1a1a1a; }
+        .hm-cell.has-data.selected { outline: 2px solid #1a1a1a; }
+        .hm-empty { background: #f0f0ee; border-radius: 2px; margin: 1px; width: 36px; height: 24px; transition: width 0.3s ease, height 0.3s ease; }
+        /* Labels hidden by default, shown at full zoom */
+        .hm-label { display: none; font-size: 11px; color: #fff; font-weight: 600; }
+        .heatmap-container.zoom-full .hm-label { display: block; }
+        .heatmap-container.zoom-full .hm-cell { width: 48px; height: 28px; display: flex; align-items: center; justify-content: center; }
+        .heatmap-container.zoom-full .hm-empty { width: 48px; height: 28px; }
+        /* Min zoom: table hidden, grid shown */
+        .hm-grid { display: none; gap: 1.5px; }
+        .heatmap-container.zoom-min .heatmap { display: none !important; }
+        .heatmap-container.zoom-min .hm-grid { display: grid; }
+        .hm-grid-cell {
+            width: 100%; aspect-ratio: 1.8;
+            border-radius: 1.5px;
+            background: #ececea;
+            cursor: pointer;
+        }
+        .hm-grid-cell:hover { outline: 1.5px solid #1a1a1a; }
+        .hm-grid-cell.selected { outline: 1.5px solid #1a1a1a; }
+        /* Mid zoom */
+        .heatmap-container.zoom-mid .school-name { font-size: 10px; padding: 3px 6px; }
+        .heatmap-container.zoom-mid .heatmap th { font-size: 9px; padding: 4px 4px; }
+        .heatmap-container.zoom-mid .hm-cell,
+        .heatmap-container.zoom-mid .hm-empty { width: 24px; height: 16px; }
+
+        /* Dataset cards */
         .dataset-card { border: 1px solid #eee; border-radius: 8px; padding: 20px; margin-bottom: 16px; }
-        .dataset-toggle { background: none; border: none; font-family: 'Times New Roman', serif; font-size: 13px; color: #999; cursor: pointer; padding: 0; margin-top: 8px; }
-        .dataset-toggle:hover { color: #1a1a1a; }
-        .dataset-preview { display: none; }
-        .dataset-preview.open { display: block; }
         .dataset-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px; }
         .dataset-title { font-size: 16px; font-weight: 600; }
         .dataset-meta { font-size: 13px; color: #999; }
-        .dataset-preview { font-size: 13px; color: #666; }
+        .dataset-toggle { background: none; border: none; font-family: 'Times New Roman', serif; font-size: 13px; color: #999; cursor: pointer; padding: 0; margin-top: 8px; }
+        .dataset-toggle:hover { color: #1a1a1a; }
+        .dataset-preview { display: none; font-size: 13px; color: #666; }
+        .dataset-preview.open { display: block; }
         .dataset-preview table { width: 100%; border-collapse: collapse; margin-top: 8px; }
         .dataset-preview td { padding: 4px 0; border-bottom: 1px solid #f0f0f0; }
-        .dataset-preview .name { }
         .dataset-preview .degree { color: #999; font-size: 12px; }
         .dataset-preview .more { color: #999; font-style: italic; padding-top: 8px; }
         .btn-download { padding: 8px 16px; font-family: 'Times New Roman', serif; font-size: 13px; background: #1a1a1a; color: #fafaf8; border: none; border-radius: 4px; cursor: pointer; white-space: nowrap; }
@@ -171,71 +204,110 @@
             <p id="inviteError" style="display:none; color:#c00; font-size:13px; margin-top:12px; text-align:center;">Invalid invite code.</p>
         </div>
 
-        <!-- Input (hidden until invited) -->
-        <div class="section" id="mainSection" style="display:none;">
-            <h2>Process a ceremony</h2>
-            <div class="form-group" style="margin-bottom: 16px;">
-                <label>YouTube URL</label>
-                <input type="text" id="youtubeUrl" placeholder="https://www.youtube.com/watch?v=...">
+        <!-- Main app (hidden until invited) -->
+        <div id="appSection" style="display:none;">
+            <div class="tabs">
+                <button class="tab active" data-tab="scraper">Scraper</button>
+                <button class="tab" data-tab="datasets">Datasets</button>
             </div>
 
-            <div class="form-row">
-                <div class="form-group">
-                    <label>School</label>
-                    <input type="text" id="school" placeholder="e.g. MIT">
+            <!-- Scraper tab -->
+            <div class="tab-content active" id="tab-scraper">
+                <div class="form-group" style="margin-bottom: 16px;">
+                    <label>YouTube URL</label>
+                    <input type="text" id="youtubeUrl" placeholder="https://www.youtube.com/watch?v=...">
                 </div>
-                <div class="form-group">
-                    <label>Term</label>
-                    <input type="text" id="term" placeholder="e.g. Spring">
-                </div>
-                <div class="form-group">
-                    <label>Year</label>
-                    <input type="number" id="year" placeholder="2025" value="2025">
-                </div>
-            </div>
-            <button class="btn" id="startBtn">Extract graduates</button>
-            <div id="userQueue" style="display:none; margin-top: 20px; border-top: 1px solid #eee; padding-top: 16px;">
-                <div style="font-size: 12px; text-transform: uppercase; letter-spacing: 1px; color: #999; margin-bottom: 8px;">Your queue</div>
-                <div id="userQueueList"></div>
-            </div>
-        </div>
 
-        <!-- Progress -->
-        <div class="progress-section" id="progressSection">
-            <div class="steps">
-                <div class="step-item" id="stepDownload">Download</div>
-                <div class="step-item" id="stepTranscribe">Transcribe</div>
-                <div class="step-item" id="stepMetadata">Extract</div>
-            </div>
-            <div class="progress-bar-wrap">
-                <div class="progress-bar-fill" id="progressBar"></div>
-            </div>
-            <div class="status" id="statusMessage">Preparing...</div>
-            <div class="latest" id="latestText"></div>
-            <button class="btn" id="cancelBtn" style="margin-top: 16px; background: #fff; color: #c00; border: 1px solid #c00; display: none;">Cancel</button>
-        </div>
+                <div class="form-row">
+                    <div class="form-group">
+                        <label>School</label>
+                        <select id="school">
+                            <option value="" disabled selected>Select school...</option>
+                        </select>
+                        <div id="requestSchoolWrap" style="display:none; margin-top:8px;">
+                            <div style="display:flex; gap:8px;">
+                                <input type="text" id="requestSchoolInput" placeholder="e.g. University of Toronto" style="flex:1;">
+                                <button class="btn" id="requestSchoolBtn" style="width:auto; padding:10px 16px; font-size:14px;">Request</button>
+                            </div>
+                            <div id="requestSchoolMsg" style="display:none; font-size:13px; margin-top:6px; color:#666;"></div>
+                        </div>
+                    </div>
+                    <div class="form-group">
+                        <label>Term</label>
+                        <select id="term">
+                            <option value="Spring">Spring</option>
+                            <option value="Summer">Summer</option>
+                            <option value="Fall">Fall</option>
+                            <option value="Winter">Winter</option>
+                        </select>
+                    </div>
+                    <div class="form-group">
+                        <label>Year</label>
+                        <select id="year">
+                            <option value="2025" selected>2025</option>
+                            <option value="2024">2024</option>
+                            <option value="2023">2023</option>
+                            <option value="2022">2022</option>
+                            <option value="2021">2021</option>
+                            <option value="2020">2020</option>
+                        </select>
+                    </div>
+                </div>
+                <button class="btn" id="startBtn">Extract graduates</button>
 
-        <!-- Results -->
-        <div class="results-section" id="resultsSection">
-            <div class="section">
-                <h2>Results</h2>
-                <p class="results-meta"><span id="totalCount"></span> graduates across <span id="groupCount"></span> programs</p>
-                <div class="table-wrap">
-                    <table>
-                        <thead>
-                            <tr>
-                                <th style="width:40px">#</th>
-                                <th>Name</th>
-                                <th>Degree</th>
-                            </tr>
-                        </thead>
-                        <tbody id="graduatesBody"></tbody>
-                    </table>
+                <div id="userQueue" style="display:none; margin-top: 20px; border-top: 1px solid #eee; padding-top: 16px;">
+                    <div style="font-size: 12px; text-transform: uppercase; letter-spacing: 1px; color: #999; margin-bottom: 8px;">Your queue</div>
+                    <div id="userQueueList"></div>
                 </div>
-                <div style="display: flex; gap: 12px; margin-top: 24px;">
-                    <button class="btn" id="downloadCsv" style="flex:1; background: #fff; color: #1a1a1a; border: 1px solid #ccc;">Download CSV</button>
-                    <button class="btn" id="tipBtn" style="flex:1; background: #008CFF; color: #fff;">☕ Leave a tip 🎓</button>
+
+                <!-- Progress -->
+                <div class="progress-section" id="progressSection">
+                    <div class="steps">
+                        <div class="step-item" id="stepDownload">Download</div>
+                        <div class="step-item" id="stepTranscribe">Transcribe</div>
+                        <div class="step-item" id="stepMetadata">Extract</div>
+                    </div>
+                    <div class="progress-bar-wrap">
+                        <div class="progress-bar-fill" id="progressBar"></div>
+                    </div>
+                    <div class="status" id="statusMessage">Preparing...</div>
+                    <div class="latest" id="latestText"></div>
+                    <button class="btn" id="cancelBtn" style="margin-top: 16px; background: #fff; color: #c00; border: 1px solid #c00; display: none;">Cancel</button>
                 </div>
+
+                <!-- Results -->
+                <div class="results-section" id="resultsSection">
+                    <div style="border-top: 1px solid #ddd; padding-top: 24px; margin-top: 24px;">
+                        <h2>Results</h2>
+                        <p class="results-meta"><span id="totalCount"></span> graduates across <span id="groupCount"></span> programs</p>
+                        <div class="table-wrap">
+                            <table>
+                                <thead><tr><th style="width:40px">#</th><th>Name</th><th>Degree</th></tr></thead>
+                                <tbody id="graduatesBody"></tbody>
+                            </table>
+                        </div>
+                        <div style="display: flex; gap: 12px; margin-top: 24px;">
+                            <button class="btn" id="downloadCsv" style="flex:1; background: #fff; color: #1a1a1a; border: 1px solid #ccc;">Download CSV</button>
+                            <button class="btn" id="tipBtn" style="flex:1; background: #008CFF; color: #fff;">Leave a tip</button>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="queue-msg" id="queueMessage" style="display:none; padding: 12px 16px; border-left: 3px solid #999; background: #f9f9f7; color: #666; font-size: 14px; font-style: italic; margin-top: 16px;"></div>
+                <div class="error-msg" id="errorMessage"></div>
+            </div>
+
+            <!-- Datasets tab -->
+            <div class="tab-content" id="tab-datasets">
+                <h2>Coverage</h2>
+                <div class="heatmap-container">
+                    <div class="heatmap-viewport" id="heatmapViewport">
+                        <div class="heatmap-inner" id="heatmapInner"></div>
+                    </div>
+                </div>
+
+                <h2>All Datasets</h2>
+                <div id="datasetsList"></div>
             </div>
         </div>
 
@@ -248,42 +320,21 @@
             </div>
         </div>
 
-        <div class="queue-msg" id="queueMessage" style="display:none; padding: 12px 16px; border-left: 3px solid #999; background: #f9f9f7; color: #666; font-size: 14px; font-style: italic; margin-top: 16px;"></div>
-        <div class="error-msg" id="errorMessage"></div>
-
-        <!-- Tip jar -->
-        <div class="section gated" id="tipSection" style="display:none;">
-            <h2>LEAVE A TIP</h2>
-            <button class="btn" id="tipBtnFooter" style="background: #008CFF; color: #fff; font-size: 16px;">☕ Tip via Venmo 🎓</button>
-        </div>
-
-        <!-- Datasets -->
-        <div class="section gated" id="datasetsSection" style="display:none;">
-            <h2>DATASETS</h2>
-            <div id="datasetsList"></div>
-        </div>
-
         <footer>commencement.stt</footer>
     </div>
 
     <script>
         const INVITE_CODE = 'caps-fly-high';
-
-        // Invite gate
         const inviteSection = document.getElementById('inviteSection');
-        const mainSection = document.getElementById('mainSection');
+        const appSection = document.getElementById('appSection');
 
         function unlockApp() {
             inviteSection.style.display = 'none';
-            mainSection.style.display = 'block';
-            document.getElementById('tipSection').style.display = 'block';
-            document.getElementById('datasetsSection').style.display = 'block';
+            appSection.style.display = 'block';
             loadDatasets();
         }
 
-        if (localStorage.getItem('stt_invited') === 'true') {
-            unlockApp();
-        }
+        if (localStorage.getItem('stt_invited') === 'true') unlockApp();
 
         document.getElementById('inviteBtn').addEventListener('click', checkInvite);
         document.getElementById('inviteCode').addEventListener('keydown', (e) => { if (e.key === 'Enter') checkInvite(); });
@@ -297,6 +348,17 @@
                 document.getElementById('inviteError').style.display = 'block';
             }
         }
+
+        // --- Tabs ---
+        document.querySelectorAll('.tab').forEach(tab => {
+            tab.addEventListener('click', () => {
+                document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
+                document.querySelectorAll('.tab-content').forEach(c => c.classList.remove('active'));
+                tab.classList.add('active');
+                document.getElementById('tab-' + tab.dataset.tab).classList.add('active');
+                if (tab.dataset.tab === 'datasets') loadDatasets();
+            });
+        });
 
         const socket = io();
         const urlInput = document.getElementById('youtubeUrl');
@@ -328,14 +390,11 @@
             localStorage.setItem('stt_job_keys', JSON.stringify(keys));
         }
 
-        // On load: try to reconnect to all in-progress jobs
         socket.on('connect', () => {
             const keys = getJobKeys();
             if (keys.length > 0) {
                 if (localStorage.getItem('stt_invited') === 'true') unlockApp();
-                // Reconnect to all queued jobs so server forwards events to our new sid
                 keys.forEach(key => socket.emit('reconnect_job', { key }));
-                // Show progress for the most recent one
                 const lastKey = localStorage.getItem('stt_job_key');
                 if (lastKey) {
                     activeKey = lastKey;
@@ -351,7 +410,6 @@
         startBtn.addEventListener('click', () => {
             const url = urlInput.value.trim();
             if (!url) { urlInput.focus(); return; }
-
             startBtn.disabled = true;
 
             fetch('/start', {
@@ -381,11 +439,7 @@
         urlInput.addEventListener('keydown', (e) => { if (e.key === 'Enter') startBtn.click(); });
 
         // --- Cancel ---
-        cancelBtn.addEventListener('click', () => {
-            if (activeKey) {
-                socket.emit('cancel_job', { key: activeKey });
-            }
-        });
+        cancelBtn.addEventListener('click', () => { if (activeKey) socket.emit('cancel_job', { key: activeKey }); });
 
         socket.on('job_cancelled', () => {
             clearJob();
@@ -430,8 +484,7 @@
 
         socket.on('transcription_progress', (data) => {
             document.getElementById('progressBar').style.width = data.percent + '%';
-            document.getElementById('statusMessage').textContent =
-                'Transcribing... ' + data.current_time + 's / ' + data.duration + 's';
+            document.getElementById('statusMessage').textContent = 'Transcribing... ' + data.current_time + 's / ' + data.duration + 's';
             if (data.latest_text && data.latest_text !== '(cached)') {
                 document.getElementById('latestText').textContent = data.latest_text;
             }
@@ -449,9 +502,7 @@
 
         socket.on('metadata_progress', (data) => {
             document.getElementById('progressBar').style.width = data.percent + '%';
-            document.getElementById('statusMessage').textContent =
-                'Extracting chunk ' + data.chunk + '/' + data.total_chunks +
-                ' \u2014 ' + data.graduates_so_far + ' graduates found';
+            document.getElementById('statusMessage').textContent = 'Extracting chunk ' + data.chunk + '/' + data.total_chunks + ' \u2014 ' + data.graduates_so_far + ' graduates found';
         });
 
         socket.on('metadata_complete', (data) => {
@@ -459,18 +510,13 @@
             document.getElementById('totalCount').textContent = data.total_graduates;
             document.getElementById('groupCount').textContent = data.groups;
             lastGraduates = data.graduates;
-
             const tbody = document.getElementById('graduatesBody');
             tbody.innerHTML = '';
             data.graduates.forEach((g, i) => {
                 const tr = document.createElement('tr');
-                tr.innerHTML =
-                    '<td>' + (i + 1) + '</td>' +
-                    '<td>' + escapeHtml(g.name) + '</td>' +
-                    '<td class="degree-cell">' + escapeHtml(g.degree || '?') + '</td>';
+                tr.innerHTML = '<td>' + (i+1) + '</td><td>' + escapeHtml(g.name) + '</td><td class="degree-cell">' + escapeHtml(g.degree || '?') + '</td>';
                 tbody.appendChild(tr);
             });
-
             document.getElementById('resultsSection').classList.add('active');
         });
 
@@ -479,7 +525,6 @@
             clearJob();
             refreshUserQueue();
             loadDatasets();
-            // If there are still queued jobs, keep progress visible
             const remainingKeys = getJobKeys();
             if (remainingKeys.length > 0) {
                 activeKey = remainingKeys[0];
@@ -492,8 +537,7 @@
             let msg = 'Done.';
             if (data && data.cost) {
                 msg += ' Cost: $' + data.cost.total_cost.toFixed(4);
-                msg += ' (Groq: $' + data.cost.groq.cost.toFixed(4);
-                msg += ', OpenAI: $' + data.cost.openai.cost.toFixed(4) + ')';
+                msg += ' (Groq: $' + data.cost.groq.cost.toFixed(4) + ', OpenAI: $' + data.cost.openai.cost.toFixed(4) + ')';
             }
             document.getElementById('statusMessage').textContent = msg;
             startBtn.disabled = false;
@@ -509,11 +553,7 @@
             }
         });
 
-        socket.on('error', (data) => {
-            showError(data.message);
-            clearJob();
-            startBtn.disabled = false;
-        });
+        socket.on('error', (data) => { showError(data.message); clearJob(); startBtn.disabled = false; });
 
         function showError(msg) {
             const el = document.getElementById('errorMessage');
@@ -525,11 +565,7 @@
         document.getElementById('downloadCsv').addEventListener('click', () => {
             if (!lastGraduates.length) return;
             const header = 'Name,Degree\n';
-            const rows = lastGraduates.map(g => {
-                const name = '"' + (g.name || '').replace(/"/g, '""') + '"';
-                const degree = '"' + (g.degree || '').replace(/"/g, '""') + '"';
-                return name + ',' + degree;
-            }).join('\n');
+            const rows = lastGraduates.map(g => '"' + (g.name||'').replace(/"/g,'""') + '","' + (g.degree||'').replace(/"/g,'""') + '"').join('\n');
             const blob = new Blob([header + rows], { type: 'text/csv' });
             const a = document.createElement('a');
             a.href = URL.createObjectURL(blob);
@@ -538,25 +574,11 @@
         });
 
         // --- Tip modal ---
-        document.getElementById('tipBtn').addEventListener('click', () => {
-            document.getElementById('tipModal').style.display = 'flex';
-        });
-        document.getElementById('tipBtnFooter').addEventListener('click', () => {
-            document.getElementById('tipModal').style.display = 'flex';
-        });
-        document.getElementById('tipClose').addEventListener('click', () => {
-            document.getElementById('tipModal').style.display = 'none';
-        });
-        document.getElementById('tipModal').addEventListener('click', (e) => {
-            if (e.target === document.getElementById('tipModal'))
-                document.getElementById('tipModal').style.display = 'none';
-        });
+        document.getElementById('tipBtn').addEventListener('click', () => { document.getElementById('tipModal').style.display = 'flex'; });
+        document.getElementById('tipClose').addEventListener('click', () => { document.getElementById('tipModal').style.display = 'none'; });
+        document.getElementById('tipModal').addEventListener('click', (e) => { if (e.target === document.getElementById('tipModal')) document.getElementById('tipModal').style.display = 'none'; });
 
-        function escapeHtml(str) {
-            const div = document.createElement('div');
-            div.textContent = str;
-            return div.innerHTML;
-        }
+        function escapeHtml(str) { const d = document.createElement('div'); d.textContent = str; return d.innerHTML; }
 
         // --- User queue ---
         function refreshUserQueue() {
@@ -565,60 +587,255 @@
                 const container = document.getElementById('userQueueList');
                 const wrapper = document.getElementById('userQueue');
                 const items = [];
-                if (data.active) {
-                    items.push({ ...data.active, status: 'Processing...' , isActive: true });
-                }
-                data.queued.forEach((j, i) => {
-                    items.push({ ...j, status: 'Queued #' + (i + 1), isActive: false });
-                });
-                if (items.length === 0) {
-                    wrapper.style.display = 'none';
-                    return;
-                }
+                if (data.active) items.push({ ...data.active, status: 'Processing...', isActive: true });
+                data.queued.forEach((j, i) => items.push({ ...j, status: 'Queued #' + (i+1), isActive: false }));
+                if (!items.length) { wrapper.style.display = 'none'; return; }
                 wrapper.style.display = 'block';
                 container.innerHTML = items.map(j =>
-                    `<div class="queue-item">
-                        <span class="qi-info">${escapeHtml(j.school)} ${j.term ? escapeHtml(j.term) + ' ' : ''}${j.year}</span>
-                        <span class="qi-status ${j.isActive ? 'active' : ''}">${j.status}</span>
-                    </div>`
+                    `<div class="queue-item"><span class="qi-info">${escapeHtml(j.school)} ${j.term ? escapeHtml(j.term)+' ':''}${j.year}</span><span class="qi-status ${j.isActive?'active':''}">${j.status}</span></div>`
                 ).join('');
             });
         }
-
-        // Refresh queue periodically
         setInterval(refreshUserQueue, 5000);
 
-        // --- Datasets ---
+        // --- Load schools dropdown ---
+        function loadSchools() {
+            fetch('/schools').then(r => r.json()).then(schools => {
+                ALL_SCHOOLS = schools;
+                const sel = document.getElementById('school');
+                const current = sel.value;
+                sel.innerHTML = '<option value="" disabled selected>Select school...</option>';
+                schools.forEach(s => { sel.innerHTML += '<option value="' + escapeHtml(s) + '">' + escapeHtml(s) + '</option>'; });
+                sel.innerHTML += '<option value="__request__">Request a school...</option>';
+                if (current) sel.value = current;
+            });
+        }
+        loadSchools();
+
+        document.getElementById('school').addEventListener('change', (e) => {
+            const wrap = document.getElementById('requestSchoolWrap');
+            wrap.style.display = e.target.value === '__request__' ? 'block' : 'none';
+            if (e.target.value === '__request__') document.getElementById('requestSchoolInput').focus();
+        });
+
+        document.getElementById('requestSchoolBtn').addEventListener('click', () => {
+            const input = document.getElementById('requestSchoolInput');
+            const msg = document.getElementById('requestSchoolMsg');
+            const name = input.value.trim();
+            if (!name) { input.focus(); return; }
+            document.getElementById('requestSchoolBtn').disabled = true;
+            msg.style.display = 'none';
+
+            fetch('/request-school', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ school: name }) })
+                .then(r => r.json())
+                .then(data => {
+                    document.getElementById('requestSchoolBtn').disabled = false;
+                    msg.style.display = 'block';
+                    msg.textContent = data.message || data.error;
+                    msg.style.color = data.error ? '#c00' : '#666';
+                    if (data.status === 'approved') {
+                        loadSchools();
+                        setTimeout(() => { document.getElementById('school').value = data.school; document.getElementById('requestSchoolWrap').style.display = 'none'; }, 500);
+                    } else if (data.status === 'exists') {
+                        document.getElementById('requestSchoolWrap').style.display = 'none';
+                    }
+                    input.value = '';
+                })
+                .catch(() => { document.getElementById('requestSchoolBtn').disabled = false; msg.style.display = 'block'; msg.textContent = 'Request failed.'; msg.style.color = '#c00'; });
+        });
+        document.getElementById('requestSchoolInput').addEventListener('keydown', (e) => { if (e.key === 'Enter') document.getElementById('requestSchoolBtn').click(); });
+
+        // --- Heatmap + Datasets ---
+        const TERMS = ['Winter', 'Spring', 'Summer', 'Fall'];
+        const YEARS = [2025, 2024, 2023, 2022, 2021, 2020];
+
+        let ALL_SCHOOLS = [];
+        let allDatasets = [];
+        let heatmapFilter = { type: null, value: null }; // {type: 'school'|'term', value: ...}
+
+        function filterDatasets(type, value) {
+            if (heatmapFilter.type === type && heatmapFilter.value === value) {
+                // Deselect
+                heatmapFilter = { type: null, value: null };
+            } else {
+                heatmapFilter = { type, value };
+            }
+            buildHeatmap(allDatasets);
+            renderDatasetCards(allDatasets);
+        }
+
+        function renderDatasetCards(datasets) {
+            const container = document.getElementById('datasetsList');
+            let filtered = datasets;
+            if (heatmapFilter.type === 'school') {
+                filtered = datasets.filter(d => d.school === heatmapFilter.value);
+            } else if (heatmapFilter.type === 'term') {
+                filtered = datasets.filter(d => (d.term || '') + ' ' + d.year === heatmapFilter.value);
+            } else if (heatmapFilter.type === 'cell') {
+                filtered = datasets.filter(d => d.school === heatmapFilter.school && (d.term || '') === heatmapFilter.term && d.year === heatmapFilter.year);
+            }
+
+            if (!filtered.length) {
+                container.innerHTML = '<p style="color:#999; font-size:14px;">No datasets' + (heatmapFilter.type ? ' for this selection' : ' yet') + '.</p>';
+                return;
+            }
+            container.innerHTML = filtered.map(d => {
+                const previewRows = d.preview.map(g => '<tr><td>' + escapeHtml(g.name) + '</td><td class="degree">' + escapeHtml(g.degree || '') + '</td></tr>').join('');
+                const remaining = d.grad_count - d.preview.length;
+                const safeId = d.id.replace(/[^a-zA-Z0-9_-]/g, '_');
+                const previewId = 'preview-' + safeId;
+                return `<div class="dataset-card">
+                    <div class="dataset-header">
+                        <div>
+                            <div class="dataset-title">${escapeHtml(d.school)} ${d.term ? escapeHtml(d.term)+' ':''}${d.year}</div>
+                            <div class="dataset-meta">${d.grad_count} / ${d.expected} graduates (${Math.round((d.completeness || 0) * 100)}%)</div>
+                        </div>
+                        <button class="btn-download" onclick="downloadDataset('${encodeURIComponent(d.id)}')">Download CSV</button>
+                    </div>
+                    <button class="dataset-toggle" onclick="togglePreview('${previewId}', this)">Show preview &darr;</button>
+                    <div class="dataset-preview" id="${previewId}">
+                        <table>${previewRows}</table>
+                        ${remaining > 0 ? '<div class="more">+ ' + remaining + ' more</div>' : ''}
+                    </div>
+                </div>`;
+            }).join('');
+        }
+
+        const HM_ZOOMS = ['min', 'mid', 'full'];
+        let hmZoomIdx = 1;
+
+        function heatmapZoom(dir) {
+            hmZoomIdx = Math.max(0, Math.min(HM_ZOOMS.length - 1, hmZoomIdx + dir));
+            applyHeatmapZoom();
+        }
+
+        function applyHeatmapZoom() {
+            const container = document.querySelector('.heatmap-container');
+            const viewport = document.getElementById('heatmapViewport');
+            if (!container || !viewport) return;
+            const zoom = HM_ZOOMS[hmZoomIdx];
+
+            container.classList.remove('zoom-min', 'zoom-mid', 'zoom-full');
+            container.classList.add('zoom-' + zoom);
+
+            if (zoom === 'min') {
+                viewport.classList.remove('scrollable');
+            } else {
+                viewport.classList.add('scrollable');
+            }
+        }
+
+        document.addEventListener('DOMContentLoaded', () => {
+            const viewport = document.getElementById('heatmapViewport');
+            if (viewport) {
+                let zooming = false;
+                viewport.addEventListener('wheel', (e) => {
+                    if (e.ctrlKey || e.metaKey) {
+                        e.preventDefault();
+                        if (zooming) return;
+                        zooming = true;
+                        heatmapZoom(e.deltaY < 0 ? 1 : -1);
+                        setTimeout(() => { zooming = false; }, 400);
+                    }
+                }, { passive: false });
+            }
+            applyHeatmapZoom();
+        });
+
+        function selectCell(school, term, year) {
+            const key = school + '|' + term + '_' + year;
+            if (heatmapFilter.type === 'cell' && heatmapFilter.value === key) {
+                heatmapFilter = { type: null, value: null };
+            } else {
+                heatmapFilter = { type: 'cell', value: key, school, term, year };
+            }
+            buildHeatmap(allDatasets);
+            renderDatasetCards(allDatasets);
+        }
+
+        function buildHeatmap(datasets) {
+            const inner = document.getElementById('heatmapInner');
+
+            // Build lookup
+            const lookup = {};
+            datasets.forEach(d => {
+                const key = d.school + '|' + (d.term || '') + '_' + d.year;
+                lookup[key] = d;
+            });
+
+            const dataSchools = [...new Set(datasets.map(d => d.school))];
+            const schools = ALL_SCHOOLS.length ? [...ALL_SCHOOLS] : [];
+            dataSchools.forEach(s => { if (!schools.includes(s)) schools.push(s); });
+
+            const cols = [];
+            YEARS.forEach(y => TERMS.forEach(t => cols.push({ term: t, year: y })));
+
+            let html = '<table class="heatmap"><thead><tr><th></th>';
+            cols.forEach(c => {
+                const label = c.term.slice(0,2) + ' \'' + ('' + c.year).slice(2);
+                const termKey = c.term + ' ' + c.year;
+                const sel = heatmapFilter.type === 'term' && heatmapFilter.value === termKey ? ' selected' : '';
+                html += '<th class="' + sel + '" onclick="filterDatasets(\'term\',\'' + termKey + '\')">' + label + '</th>';
+            });
+            html += '</tr></thead><tbody>';
+
+            schools.forEach(school => {
+                const hasAny = cols.some(c => lookup[school + '|' + c.term + '_' + c.year]);
+                const isSelected = heatmapFilter.type === 'school' && heatmapFilter.value === school;
+                const nameClass = 'school-name' + (isSelected ? ' selected' : '');
+                const nameStyle = hasAny || isSelected ? '' : ' style="color:#bbb;"';
+
+                html += '<tr><td class="' + nameClass + '"' + nameStyle + ' onclick="filterDatasets(\'school\',\'' + escapeHtml(school).replace(/'/g, "\\'") + '\')">' + escapeHtml(school) + '</td>';
+                cols.forEach(c => {
+                    const d = lookup[school + '|' + c.term + '_' + c.year];
+                    const cellKey = school + '|' + c.term + '_' + c.year;
+                    const isCellSelected = heatmapFilter.type === 'cell' && heatmapFilter.value === cellKey;
+                    if (d) {
+                        const pct = d.completeness || 0;
+                        const lightness = Math.round(90 - pct * 60);
+                        const bg = `hsl(145, 55%, ${lightness}%)`;
+                        const selClass = isCellSelected ? ' selected' : '';
+                        const pctLabel = Math.round(pct * 100) + '%';
+                        html += '<td><div class="hm-cell has-data' + selClass + '" style="background:' + bg + ';" title="' + escapeHtml(school) + ' ' + c.term + ' ' + c.year + ': ' + d.grad_count + '/' + d.expected + ' (' + pctLabel + ')" onclick="selectCell(\'' + escapeHtml(school).replace(/'/g, "\\'") + '\',\'' + c.term + '\',' + c.year + ')"><span class="hm-label">' + pctLabel + '</span></div></td>';
+                    } else {
+                        html += '<td><div class="hm-empty"></div></td>';
+                    }
+                });
+                html += '</tr>';
+            });
+
+            html += '</tbody></table>';
+
+            // Build flat grid for min-zoom view
+            const numCols = cols.length;
+            let gridHtml = '<div class="hm-grid" style="grid-template-columns: repeat(' + numCols + ', 1fr);">';
+            schools.forEach(school => {
+                cols.forEach(c => {
+                    const d = lookup[school + '|' + c.term + '_' + c.year];
+                    const cellKey = school + '|' + c.term + '_' + c.year;
+                    const isCellSelected = heatmapFilter.type === 'cell' && heatmapFilter.value === cellKey;
+                    const selClass = isCellSelected ? ' selected' : '';
+                    if (d) {
+                        const pct = d.completeness || 0;
+                        const lightness = Math.round(90 - pct * 60);
+                        const bg = `hsl(145, 55%, ${lightness}%)`;
+                        gridHtml += '<div class="hm-grid-cell' + selClass + '" style="background:' + bg + ';" title="' + escapeHtml(school) + ' ' + c.term + ' ' + c.year + ': ' + Math.round(pct * 100) + '%' + '" onclick="selectCell(\'' + escapeHtml(school).replace(/'/g, "\\'") + '\',\'' + c.term + '\',' + c.year + ')"></div>';
+                    } else {
+                        gridHtml += '<div class="hm-grid-cell"></div>';
+                    }
+                });
+            });
+            gridHtml += '</div>';
+
+            inner.innerHTML = html + gridHtml;
+            applyHeatmapZoom();
+        }
+
         function loadDatasets() {
             fetch('/datasets').then(r => r.json()).then(datasets => {
-                const container = document.getElementById('datasetsList');
-                if (!datasets.length) {
-                    container.innerHTML = '<p style="color:#999; font-size:14px;">No datasets yet.</p>';
-                    return;
-                }
-                container.innerHTML = datasets.map(d => {
-                    const previewRows = d.preview.map(g =>
-                        '<tr><td class="name">' + escapeHtml(g.name) + '</td><td class="degree">' + escapeHtml(g.degree || '') + '</td></tr>'
-                    ).join('');
-                    const remaining = d.grad_count - d.preview.length;
-                    const previewId = 'preview-' + d.id;
-                    return `
-                        <div class="dataset-card">
-                            <div class="dataset-header">
-                                <div>
-                                    <div class="dataset-title">${escapeHtml(d.school)} ${d.term ? escapeHtml(d.term) + ' ' : ''}${d.year}</div>
-                                    <div class="dataset-meta">${d.grad_count} graduates${d.id.length === 11 ? ' &middot; <a href="https://youtube.com/watch?v=' + d.id + '" target="_blank" style="color:#999;">source</a>' : ''}</div>
-                                </div>
-                                <button class="btn-download" onclick="downloadDataset('${d.id}')">Download CSV</button>
-                            </div>
-                            <button class="dataset-toggle" onclick="togglePreview('${previewId}', this)">Show preview &darr;</button>
-                            <div class="dataset-preview" id="${previewId}">
-                                <table>${previewRows}</table>
-                                ${remaining > 0 ? '<div class="more">+ ' + remaining + ' more</div>' : ''}
-                            </div>
-                        </div>
-                    `;
-                }).join('');
+                allDatasets = datasets;
+                buildHeatmap(datasets);
+                renderDatasetCards(datasets);
             });
         }
 
@@ -628,19 +845,9 @@
             btn.innerHTML = el.classList.contains('open') ? 'Hide preview &uarr;' : 'Show preview &darr;';
         }
 
-        function downloadDataset(videoId) {
-            // Show tip modal first, then download
+        function downloadDataset(datasetId) {
             document.getElementById('tipModal').style.display = 'flex';
-            // Add a one-time listener for when they close the modal
-            const modal = document.getElementById('tipModal');
-            const handler = () => {
-                window.location.href = '/datasets/' + videoId + '/csv';
-                modal.removeEventListener('click', handler);
-            };
-            // Download after a short delay (let them see the QR)
-            setTimeout(() => {
-                window.location.href = '/datasets/' + videoId + '/csv';
-            }, 3000);
+            setTimeout(() => { window.location.href = '/datasets/' + datasetId + '/csv'; }, 3000);
         }
     </script>
 </body>

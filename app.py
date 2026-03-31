@@ -14,6 +14,10 @@ from dotenv import load_dotenv
 
 load_dotenv(".env.local")
 
+# Ensure homebrew binaries (ffmpeg, ffprobe) are in PATH
+if "/opt/homebrew/bin" not in os.environ.get("PATH", ""):
+    os.environ["PATH"] = "/opt/homebrew/bin:" + os.environ.get("PATH", "")
+
 from flask import Flask, render_template, request, jsonify, Response
 from flask_socketio import SocketIO
 from db import save_video, save_graduates, get_cached_transcript, save_transcript, get_graduates_by_video
@@ -527,37 +531,259 @@ def queue_status():
     return jsonify({"active": active, "queued": jobs, "max": MAX_PER_IP})
 
 
+DEFAULT_SCHOOLS = [
+    "MIT",
+    "Carnegie Mellon University",
+    "Stanford University",
+    "UC Berkeley",
+    "University of Illinois Urbana-Champaign",
+    "Georgia Tech",
+    "University of Washington",
+    "Cornell University",
+    "Princeton University",
+    "University of Michigan",
+    "Columbia University",
+    "Harvard University",
+    "UCLA",
+    "University of Texas at Austin",
+    "University of Wisconsin-Madison",
+    "UC San Diego",
+    "University of Pennsylvania",
+    "Duke University",
+    "Northwestern University",
+    "Rice University",
+    "University of Waterloo",
+    "Yale University",
+    "University of North Carolina",
+    "Johns Hopkins University",
+    "Brown University",
+    "Dartmouth College",
+    "University of Chicago",
+    "Vanderbilt University",
+    "NYU",
+    "University of Virginia",
+]
+
+# Approximate annual graduating class sizes (all degrees)
+EXPECTED_GRADUATES = {
+    "MIT": 3400,
+    "Carnegie Mellon University": 5000,
+    "Stanford University": 4500,
+    "UC Berkeley": 10500,
+    "University of Illinois Urbana-Champaign": 15000,
+    "Georgia Tech": 7500,
+    "University of Washington": 12000,
+    "Cornell University": 7000,
+    "Princeton University": 2000,
+    "University of Michigan": 14000,
+    "Columbia University": 8000,
+    "Harvard University": 7000,
+    "UCLA": 12000,
+    "University of Texas at Austin": 13000,
+    "University of Wisconsin-Madison": 10000,
+    "UC San Diego": 9000,
+    "University of Pennsylvania": 6000,
+    "Duke University": 4000,
+    "Northwestern University": 5000,
+    "Rice University": 2000,
+    "University of Waterloo": 10000,
+    "Yale University": 3500,
+    "University of North Carolina": 8000,
+    "Johns Hopkins University": 5000,
+    "Brown University": 2500,
+    "Dartmouth College": 2000,
+    "University of Chicago": 3500,
+    "Vanderbilt University": 3500,
+    "NYU": 12000,
+    "University of Virginia": 7000,
+}
+
+REQUEST_THRESHOLD = 10
+
+
+@app.route("/schools")
+def schools():
+    """Return default schools + any auto-approved ones."""
+    from db import get_conn
+    with get_conn() as conn:
+        cur = conn.cursor()
+        ph = "%s" if os.environ.get("DATABASE_URL") else "?"
+        cur.execute("SELECT name FROM approved_schools ORDER BY name")
+        approved = [row[0] if os.environ.get("DATABASE_URL") else row["name"] for row in cur.fetchall()]
+
+    # Maintain prestige order: defaults first (in order), then approved (sorted)
+    seen = set()
+    ordered = []
+    for s in DEFAULT_SCHOOLS:
+        if s not in seen:
+            ordered.append(s)
+            seen.add(s)
+    for s in sorted(approved):
+        if s not in seen:
+            ordered.append(s)
+            seen.add(s)
+    return jsonify(ordered)
+
+
+@app.route("/request-school", methods=["POST"])
+def request_school():
+    """Submit a school request. Uses LLM to normalize, auto-approves at threshold."""
+    data = request.get_json()
+    raw_name = data.get("school", "").strip()
+    if not raw_name or len(raw_name) < 2:
+        return jsonify({"error": "Please enter a school name"}), 400
+
+    ip = _get_ip()
+
+    # Check if already in the list
+    from db import get_conn
+    with get_conn() as conn:
+        cur = conn.cursor()
+        ph = "%s" if os.environ.get("DATABASE_URL") else "?"
+
+        # Use LLM to normalize the school name
+        normalized = _normalize_school_name(raw_name)
+
+        # Check if it's already a default or approved school
+        all_schools = DEFAULT_SCHOOLS[:]
+        cur.execute("SELECT name FROM approved_schools")
+        approved = [row[0] if os.environ.get("DATABASE_URL") else row["name"] for row in cur.fetchall()]
+        all_schools.extend(approved)
+
+        for s in all_schools:
+            if s.lower() == normalized.lower():
+                return jsonify({"status": "exists", "message": f"{s} is already available!"})
+
+        # Check for duplicate request from same IP
+        cur.execute(
+            f"SELECT id FROM school_requests WHERE normalized_name = {ph} AND ip = {ph}",
+            (normalized, ip),
+        )
+        if cur.fetchone():
+            return jsonify({"status": "duplicate", "message": f"You already requested {normalized}. It has been noted!"})
+
+        # Store the request
+        cur.execute(
+            f"INSERT INTO school_requests (raw_name, normalized_name, ip) VALUES ({ph}, {ph}, {ph})",
+            (raw_name, normalized, ip),
+        )
+
+        # Count requests for this normalized name
+        cur.execute(
+            f"SELECT COUNT(*) FROM school_requests WHERE normalized_name = {ph}",
+            (normalized,),
+        )
+        count = cur.fetchone()[0]
+
+        if count >= REQUEST_THRESHOLD:
+            # Auto-approve!
+            if os.environ.get("DATABASE_URL"):
+                cur.execute(
+                    "INSERT INTO approved_schools (name, auto_approved) VALUES (%s, TRUE) ON CONFLICT DO NOTHING",
+                    (normalized,),
+                )
+            else:
+                cur.execute(
+                    "INSERT OR IGNORE INTO approved_schools (name, auto_approved) VALUES (?, 1)",
+                    (normalized,),
+                )
+            return jsonify({
+                "status": "approved",
+                "message": f"{normalized} just reached {REQUEST_THRESHOLD} requests and has been added!",
+                "school": normalized,
+            })
+
+        remaining = REQUEST_THRESHOLD - count
+        return jsonify({
+            "status": "requested",
+            "message": f"Request noted for {normalized}! {remaining} more request{'s' if remaining != 1 else ''} needed to add it.",
+            "count": count,
+            "needed": remaining,
+        })
+
+
+def _normalize_school_name(raw_name):
+    """Use LLM to normalize a school name to its canonical form."""
+    try:
+        from openai import OpenAI
+        client = OpenAI(api_key=os.environ.get("OPENAI_API_KEY"))
+        response = client.chat.completions.create(
+            model="gpt-4o-mini",
+            messages=[
+                {"role": "system", "content": "You normalize university/college names to their canonical form. Return ONLY the normalized name, nothing else. Examples: 'mit' -> 'MIT', 'u of michigan' -> 'University of Michigan', 'cal tech' -> 'Caltech', 'uw madison' -> 'University of Wisconsin-Madison'. Keep well-known abbreviations (MIT, UCLA, NYU, etc)."},
+                {"role": "user", "content": raw_name},
+            ],
+            temperature=0.0,
+            max_tokens=50,
+        )
+        return response.choices[0].message.content.strip().strip('"')
+    except Exception:
+        # Fallback: title-case the raw name
+        return raw_name.strip().title()
+
+
 @app.route("/datasets")
 def datasets():
-    """Return available datasets with preview."""
+    """Return datasets grouped by school+term+year with merged graduates."""
     from db import get_conn, _rows_to_dicts
     with get_conn() as conn:
         cur = conn.cursor()
         ph = "%s" if os.environ.get("DATABASE_URL") else "?"
+
+        # Group by school+term+year, count unique graduates
         cur.execute(
-            "SELECT v.id, v.title, v.school, v.year, v.term, COUNT(g.id) as grad_count "
-            "FROM videos v JOIN graduates g ON v.id = g.video_id "
-            "GROUP BY v.id, v.title, v.school, v.year, v.term "
-            "HAVING COUNT(g.id) > 0 "
-            "ORDER BY v.school, v.year"
+            "SELECT g.school, g.year, COALESCE(v.term, '') as term, "
+            "COUNT(DISTINCT g.name) as grad_count "
+            "FROM graduates g JOIN videos v ON g.video_id = v.id "
+            "GROUP BY g.school, g.year, v.term "
+            "HAVING COUNT(DISTINCT g.name) > 0 "
+            "ORDER BY g.school, g.year"
         )
-        vids = _rows_to_dicts(cur, cur.fetchall())
+        groups = _rows_to_dicts(cur, cur.fetchall())
 
-        for v in vids:
+        for g in groups:
+            # Get preview of deduplicated names
             cur.execute(
-                f"SELECT name, degree FROM graduates WHERE video_id = {ph} ORDER BY id LIMIT 10",
-                (v["id"],),
+                f"SELECT DISTINCT g.name, g.degree FROM graduates g "
+                f"JOIN videos v ON g.video_id = v.id "
+                f"WHERE g.school = {ph} AND g.year = {ph} AND COALESCE(v.term, '') = {ph} "
+                f"ORDER BY g.name LIMIT 10",
+                (g["school"], g["year"], g["term"]),
             )
-            v["preview"] = _rows_to_dicts(cur, cur.fetchall())
+            g["preview"] = _rows_to_dicts(cur, cur.fetchall())
+            # Create a stable ID for CSV download
+            g["id"] = f"{g['school']}_{g.get('term', '')}_{g['year']}".replace(" ", "_")
+            # Completeness: how much of the expected class we've captured
+            expected = EXPECTED_GRADUATES.get(g["school"], 5000)
+            g["expected"] = expected
+            g["completeness"] = round(min(g["grad_count"] / expected, 1.0), 3)
 
-    return jsonify(vids)
+    return jsonify(groups)
 
 
-@app.route("/datasets/<video_id>/csv")
-def dataset_csv(video_id):
-    """Download full dataset as CSV."""
-    from db import get_graduates_by_video
-    graduates = get_graduates_by_video(video_id)
+@app.route("/datasets/<path:dataset_id>/csv")
+def dataset_csv(dataset_id):
+    """Download merged dataset as CSV. dataset_id is School_Term_Year."""
+    from db import get_conn, _rows_to_dicts
+    parts = dataset_id.rsplit("_", 2)
+    if len(parts) != 3:
+        return "Invalid dataset ID", 400
+    school = parts[0].replace("_", " ")
+    term = parts[1].replace("_", " ")
+    year = parts[2]
+
+    with get_conn() as conn:
+        cur = conn.cursor()
+        ph = "%s" if os.environ.get("DATABASE_URL") else "?"
+        cur.execute(
+            f"SELECT DISTINCT g.name, g.degree FROM graduates g "
+            f"JOIN videos v ON g.video_id = v.id "
+            f"WHERE g.school = {ph} AND g.year = {ph} AND COALESCE(v.term, '') = {ph} "
+            f"ORDER BY g.name",
+            (school, int(year), term),
+        )
+        graduates = _rows_to_dicts(cur, cur.fetchall())
+
     if not graduates:
         return "Not found", 404
 
@@ -569,10 +795,11 @@ def dataset_csv(video_id):
         degree = '"' + (g.get("degree") or "").replace('"', '""') + '"'
         output.write(f"{name},{degree}\n")
 
+    filename = f"{school}_{term}_{year}_graduates.csv".replace(" ", "_")
     return Response(
         output.getvalue(),
         mimetype="text/csv",
-        headers={"Content-Disposition": f"attachment; filename={video_id}_graduates.csv"},
+        headers={"Content-Disposition": f"attachment; filename={filename}"},
     )
 
 

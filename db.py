@@ -87,6 +87,22 @@ def init_db():
             """)
             cur.execute("CREATE INDEX IF NOT EXISTS idx_graduates_video ON graduates(video_id)")
             cur.execute("CREATE INDEX IF NOT EXISTS idx_graduates_name ON graduates(name)")
+            cur.execute("""
+                CREATE TABLE IF NOT EXISTS school_requests (
+                    id SERIAL PRIMARY KEY,
+                    raw_name TEXT NOT NULL,
+                    normalized_name TEXT NOT NULL,
+                    ip TEXT,
+                    created_at TIMESTAMP DEFAULT NOW()
+                )
+            """)
+            cur.execute("""
+                CREATE TABLE IF NOT EXISTS approved_schools (
+                    name TEXT PRIMARY KEY,
+                    auto_approved BOOLEAN DEFAULT FALSE,
+                    created_at TIMESTAMP DEFAULT NOW()
+                )
+            """)
         else:
             cur.executescript("""
                 CREATE TABLE IF NOT EXISTS videos (
@@ -109,6 +125,18 @@ def init_db():
                 );
                 CREATE INDEX IF NOT EXISTS idx_graduates_video ON graduates(video_id);
                 CREATE INDEX IF NOT EXISTS idx_graduates_name ON graduates(name);
+                CREATE TABLE IF NOT EXISTS school_requests (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    raw_name TEXT NOT NULL,
+                    normalized_name TEXT NOT NULL,
+                    ip TEXT,
+                    created_at TEXT DEFAULT (datetime('now'))
+                );
+                CREATE TABLE IF NOT EXISTS approved_schools (
+                    name TEXT PRIMARY KEY,
+                    auto_approved INTEGER DEFAULT 0,
+                    created_at TEXT DEFAULT (datetime('now'))
+                );
             """)
 
 
